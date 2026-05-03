@@ -1,0 +1,11 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Barfum",
+      "request": "launch",
+      "type": "dart",
+      "args": ["--dart-define-from-file", "define.json"]
+    }
+  ]
+}

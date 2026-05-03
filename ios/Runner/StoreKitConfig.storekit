@@ -1,0 +1,73 @@
+{
+  "identifier" : "itri_storekit_config",
+  "nonConsumableProducts" : [
+
+  ],
+  "nonRenewingSubscriptionProducts" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "ar_SA",
+    "_storefront" : "SAU",
+    "_timeRate" : 1
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "itri_pro_group",
+      "localizations" : [
+
+      ],
+      "name" : "Itri Pro",
+      "subscriptions" : [
+        {
+          "adHocOfferCodesEnabled" : false,
+          "displayPrice" : "37.99",
+          "familySharable" : false,
+          "groupNumber" : 1,
+          "internalID" : "itri_monthly_internal",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Full access to all Itri Pro features, billed monthly.",
+              "displayName" : "Itri Pro Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "itri_premium_monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Monthly",
+          "subscriptionGroupID" : "itri_pro_group",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOfferCodesEnabled" : false,
+          "displayPrice" : "299.99",
+          "familySharable" : false,
+          "groupNumber" : 2,
+          "internalID" : "itri_yearly_internal",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Full access to all Itri Pro features, billed yearly.",
+              "displayName" : "Itri Pro Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "itri_premium_yearly",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Yearly",
+          "subscriptionGroupID" : "itri_pro_group",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
