@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../data/user_collection_repository.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/hardcoded_localizations.dart';
+import '../services/free_usage_service.dart';
 import '../services/subscription_service.dart';
 import '../models/perfume.dart';
 import '../theme.dart';
@@ -74,6 +75,12 @@ class _CollectionScreenState extends State<CollectionScreen> {
   }
 
   static const _filterValues = ['', 'owned', 'wish', 'tested'];
+
+  int get _collectionCount {
+    final stats = _liveStats;
+    final statuses = _collectionStatuses;
+    return stats?.count ?? statuses?.length ?? 0;
+  }
 
   List<Perfume> get _filteredPerfumes {
     final statuses = _collectionStatuses;
@@ -240,12 +247,30 @@ class _CollectionScreenState extends State<CollectionScreen> {
             ],
           ),
         ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: widget.onAddTap,
-          backgroundColor: kGold,
-          foregroundColor: kOud,
-          elevation: 8,
-          child: const Icon(Icons.add, size: 28),
+        floatingActionButton: ValueListenableBuilder<bool>(
+          valueListenable: SubscriptionService.instance.isPro,
+          builder: (_, isPro, __) {
+            if (isPro) {
+              return FloatingActionButton(
+                onPressed: widget.onAddTap,
+                backgroundColor: kGold,
+                foregroundColor: kOud,
+                elevation: 8,
+                child: const Icon(Icons.add, size: 28),
+              );
+            }
+            final atLimit = _collectionCount >= FreeUsageService.kFreeCollectionLimit;
+            return FloatingActionButton(
+              onPressed: atLimit ? widget.onRequireUpgrade : widget.onAddTap,
+              backgroundColor: atLimit ? kSand : kGold,
+              foregroundColor: kOud,
+              elevation: 8,
+              child: Icon(
+                atLimit ? Icons.lock_rounded : Icons.add,
+                size: 28,
+              ),
+            );
+          },
         ),
       ),
     );
@@ -328,7 +353,7 @@ class _CollectionScreenState extends State<CollectionScreen> {
     final stats = _liveStats;
 
     // Count: authoritative from DB when available, fallback to map length.
-    final count = stats?.count ?? statuses?.length ?? 0;
+    final count = _collectionCount;
 
     // Price: sum of price_paid stored at entry time; show dash until loaded.
     final price = stats?.totalPrice ?? 0.0;
@@ -427,6 +452,27 @@ class _CollectionScreenState extends State<CollectionScreen> {
                                 fontWeight: FontWeight.w700,
                                 color: kOud,
                               ),
+                            ),
+                          )
+                        else if (i == 0 && !isPro)
+                          RichText(
+                            text: TextSpan(
+                              text: t.value,
+                              style: arabicStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                              ),
+                              children: [
+                                TextSpan(
+                                  text: ' / ${FreeUsageService.kFreeCollectionLimit}',
+                                  style: arabicStyle(
+                                    fontSize: 10,
+                                    color: count >= FreeUsageService.kFreeCollectionLimit
+                                        ? Colors.red.shade400
+                                        : kWarmGray,
+                                  ),
+                                ),
+                              ],
                             ),
                           )
                         else

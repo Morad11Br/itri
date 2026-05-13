@@ -56,9 +56,28 @@ serve(async (req) => {
     const { data: pool, error } = await query
     if (error) throw error
 
-    const candidates = (pool ?? []).filter(
+    let candidates = (pool ?? []).filter(
       (p) => !(p.name === reference.name && p.brand === reference.brand),
     )
+
+    // If accord filter returned too few candidates, supplement with top popular
+    if (candidates.length < 20) {
+      const { data: popular } = await supabase
+        .from('fragrances')
+        .select('source_id, name, brand, accords, notes, rating')
+        .order('popularity_score', { ascending: false })
+        .limit(100)
+      const existingIds = new Set(candidates.map((p) => String(p.source_id)))
+      for (const p of popular ?? []) {
+        if (
+          !existingIds.has(String(p.source_id)) &&
+          !(p.name === reference.name && p.brand === reference.brand)
+        ) {
+          candidates.push(p)
+          existingIds.add(String(p.source_id))
+        }
+      }
+    }
 
     // 2. Build candidate list for the prompt
     const candidateLines = candidates
@@ -108,7 +127,7 @@ Return JSON only, with no surrounding text:
 {
   "reference_price_range_sar": "1800-2500",
   "dupes": [
-    {"id":"...","reason":"short English reason, 12 words or fewer","similarity":85,"price_range_sar":"150-300"}
+    {"id":"...","brand":"...","name":"...","reason":"short English reason, 12 words or fewer","similarity":85,"price_range_sar":"150-300"}
   ]
 }
 
@@ -147,7 +166,11 @@ Sort from highest to lowest similarity. similarity: number from 0 to 100.`
       : (parsed.reference_price_range_sar ?? null)
 
     // 5. Fetch full fragrance rows for the picked IDs
-    const ids = picks.map((p) => p.id)
+    // Cast to numbers when possible — source_id may be an integer column
+    const ids = picks.map((p) => {
+      const n = Number(p.id)
+      return Number.isFinite(n) ? n : p.id
+    })
     const { data: chosen } = await supabase
       .from('fragrances')
       .select(
@@ -156,10 +179,28 @@ Sort from highest to lowest similarity. similarity: number from 0 to 100.`
       )
       .in('source_id', ids)
 
+    // Build a lookup by both source_id (string) and by "brand|name" for fallback
+    const chosenById = new Map<string, Record<string, unknown>>()
+    const chosenByName = new Map<string, Record<string, unknown>>()
+    for (const row of chosen ?? []) {
+      chosenById.set(String(row.source_id), row)
+      chosenByName.set(`${row.brand}|${row.name}`.toLowerCase(), row)
+    }
+
+    // Build a lookup of candidates by id for name-based fallback
+    const candidateByName = new Map<string, Record<string, unknown>>()
+    for (const c of candidates) {
+      candidateByName.set(`${c.brand}|${c.name}`.toLowerCase(), c)
+    }
+
     // 6. Merge AI metadata, preserve ranking order
     const dupes = picks
       .map((pick) => {
-        const row = (chosen ?? []).find((c) => c.source_id === pick.id)
+        // Try by source_id first, then by brand|name in chosen, then in candidates pool
+        const row =
+          chosenById.get(String(pick.id)) ??
+          chosenByName.get(`${pick.brand ?? ''}|${pick.name ?? ''}`.toLowerCase()) ??
+          null
         if (!row) return null
         return {
           ...row,

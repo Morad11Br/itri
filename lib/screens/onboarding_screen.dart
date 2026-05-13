@@ -1,7 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import '../l10n/app_localizations.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../l10n/hardcoded_localizations.dart';
 import '../theme.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -13,322 +16,446 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _fade;
-  late Animation<Offset> _slide;
-  Timer? _startTimer;
+    with TickerProviderStateMixin {
+  final _pageCtrl = PageController();
+  int _currentPage = 0;
+
+  Package? _monthlyPackage;
+  bool _loadingOfferings = true;
+  bool _purchasing = false;
+  String? _purchaseError;
+
+  late final AnimationController _slideCtrl;
+  late final Animation<Offset> _slide;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = AnimationController(
+    _slideCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 500),
     );
-    _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
     _slide = Tween<Offset>(
-      begin: const Offset(0, 0.15),
+      begin: const Offset(0, 0.08),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
-    _startTimer = Timer(const Duration(milliseconds: 100), () {
-      if (mounted) _ctrl.forward();
-    });
+    ).animate(CurvedAnimation(parent: _slideCtrl, curve: Curves.easeOut));
+    _slideCtrl.forward();
+    _loadOfferings();
+  }
+
+  Future<void> _loadOfferings() async {
+    try {
+      final offerings = await Purchases.getOfferings();
+      if (!mounted) return;
+      final current = offerings.current;
+      setState(() {
+        _monthlyPackage = current?.monthly ?? current?.annual;
+        _loadingOfferings = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingOfferings = false);
+    }
+  }
+
+  Future<void> _purchase() async {
+    final package = _monthlyPackage;
+    if (package == null) return;
+    setState(() => _purchasing = true);
+    try {
+      final info = await Purchases.purchasePackage(package);
+      if (!mounted) return;
+      final isActive = info.entitlements.active.containsKey('Itri Pro');
+      if (isActive) {
+        await _markComplete();
+        widget.onDone();
+      } else {
+        setState(() => _purchaseError = context.t('Purchase failed. Please try again.'));
+      }
+    } on PurchasesErrorCode catch (e) {
+      if (!mounted) return;
+      if (e != PurchasesErrorCode.purchaseCancelledError) {
+        setState(() => _purchaseError = context.t('Purchase failed. Please try again.'));
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _purchaseError = context.t('Purchase failed. Please try again.'));
+    } finally {
+      if (mounted) setState(() => _purchasing = false);
+    }
+  }
+
+  Future<void> _markComplete() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('onboarding_completed', true);
+  }
+
+  void _onSkip() {
+    unawaited(_markComplete());
+    widget.onDone();
+  }
+
+  void _onNext() {
+    if (_currentPage < 3) {
+      _pageCtrl.nextPage(
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   @override
   void dispose() {
-    _startTimer?.cancel();
-    _ctrl.dispose();
+    _pageCtrl.dispose();
+    _slideCtrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: kOud,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF1A0A04),
-              Color(0xFF3D2314),
-              Color(0xFF6B3A1F),
-              Color(0xFF2C1810),
-            ],
-            stops: [0.0, 0.4, 0.7, 1.0],
-          ),
-        ),
-        child: SafeArea(
-          child: Stack(
-            children: [
-              // Ambient glow top
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Container(
-                    width: 240,
-                    height: 240,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          kGold.withValues(alpha: 0.25),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              // Bottle illustration
-              FadeTransition(
-                opacity: _fade,
-                child: Align(
-                  alignment: const Alignment(0, -0.55),
-                  child: _buildBottleSVG(),
-                ),
-              ),
-              // Particles
-              ..._buildParticles(),
-              // Skip
-              Positioned(
-                top: 8,
-                right: 16,
+      backgroundColor: kCream,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Skip button
+            Align(
+              alignment: AlignmentDirectional.topEnd,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 8, 16, 0),
                 child: TextButton(
-                  onPressed: widget.onDone,
+                  onPressed: _onSkip,
                   child: Text(
-                    AppLocalizations.of(context).skip,
+                    context.t('Skip'),
                     style: arabicStyle(
-                      fontSize: 13,
-                      color: Colors.white.withValues(alpha: 0.6),
+                      fontSize: 14,
+                      color: kWarmGray,
                     ),
                   ),
                 ),
               ),
-              // Content bottom
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: FadeTransition(
-                  opacity: _fade,
-                  child: SlideTransition(
-                    position: _slide,
-                    child: _buildContent(),
+            ),
+            // PageView
+            Expanded(
+              child: PageView(
+                controller: _pageCtrl,
+                onPageChanged: (i) {
+                  setState(() => _currentPage = i);
+                  _slideCtrl.forward(from: 0);
+                },
+                physics: const BouncingScrollPhysics(),
+                children: [
+                  _buildFeaturePage(
+                    icon: Icons.camera_alt_rounded,
+                    iconGradient: const [Color(0xFFE8C84A), kGold],
+                    title: context.t('Scan any perfume and know its details'),
+                    subtitle: context.t(
+                      'AI recognizes the perfume and gives you all the information',
+                    ),
                   ),
-                ),
+                  _buildFeaturePage(
+                    icon: Icons.compare_arrows_rounded,
+                    iconGradient: const [Color(0xFF059669), Color(0xFF10B981)],
+                    title: context.t('Discover perfumes with the same taste'),
+                    subtitle: context.t(
+                      'Accurate match percentage with alternatives that fit your budget',
+                    ),
+                  ),
+                  _buildFeaturePage(
+                    icon: Icons.auto_awesome_rounded,
+                    iconGradient: const [Color(0xFF8B5CF6), Color(0xFFA78BFA)],
+                    title: context.t('The perfect perfume for every occasion'),
+                    subtitle: context.t(
+                      'Let AI choose for you based on weather and occasion',
+                    ),
+                  ),
+                  _buildPaywallPage(),
+                ],
               ),
-            ],
-          ),
+            ),
+            // Bottom controls
+            _buildBottomBar(),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildBottleSVG() {
-    return SizedBox(
-      width: 120,
-      height: 220,
-      child: CustomPaint(painter: _OnboardingBottlePainter()),
+  Widget _buildFeaturePage({
+    required IconData icon,
+    required List<Color> iconGradient,
+    required String title,
+    required String subtitle,
+  }) {
+    return SlideTransition(
+      position: _slide,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Spacer(flex: 2),
+            // Decorative icon circle
+            Container(
+              width: 140,
+              height: 140,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: iconGradient,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: iconGradient.last.withValues(alpha: 0.35),
+                    blurRadius: 30,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Icon(icon, size: 56, color: Colors.white),
+            ),
+            const SizedBox(height: 48),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: arabicStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w800,
+                color: kOud,
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: arabicStyle(
+                fontSize: 15,
+                color: kWarmGray,
+                height: 1.6,
+              ),
+            ),
+            const Spacer(flex: 3),
+          ],
+        ),
+      ),
     );
   }
 
-  List<Widget> _buildParticles() {
-    final positions = [
-      [0.15, 0.28],
-      [0.72, 0.22],
-      [0.08, 0.45],
-      [0.88, 0.38],
-      [0.32, 0.18],
-      [0.62, 0.35],
-      [0.45, 0.52],
-      [0.78, 0.48],
+  Widget _buildPaywallPage() {
+    final features = [
+      context.t('Unlimited perfume scans'),
+      context.t('Smart alternatives for every perfume'),
+      context.t('AI occasion recommendations'),
+      context.t('Track your full collection'),
     ];
-    return positions
-        .map(
-          (p) => Positioned(
-            left: MediaQuery.of(context).size.width * p[0],
-            top: MediaQuery.of(context).size.height * p[1],
-            child: Container(
-              width: 3,
-              height: 3,
+
+    return SlideTransition(
+      position: _slide,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Spacer(flex: 1),
+            // Premium icon
+            Container(
+              width: 80,
+              height: 80,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: kGold.withValues(alpha: 0.5),
+                gradient: const LinearGradient(
+                  colors: [kGoldLight, kGold],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: kGoldShadow,
+              ),
+              child: const Icon(
+                Icons.workspace_premium_rounded,
+                size: 40,
+                color: kOud,
               ),
             ),
-          ),
-        )
-        .toList();
+            const SizedBox(height: 28),
+            Text(
+              context.t('Try Atari Premium for free'),
+              textAlign: TextAlign.center,
+              style: arabicStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w900,
+                color: kOud,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              context.t('A full week without limits'),
+              textAlign: TextAlign.center,
+              style: arabicStyle(
+                fontSize: 15,
+                color: kWarmGray,
+              ),
+            ),
+            const SizedBox(height: 32),
+            // Features list
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: kCardShadow,
+              ),
+              child: Column(
+                children: features.map((f) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.check_circle_rounded,
+                          color: kSuccess,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            f,
+                            style: arabicStyle(
+                              fontSize: 14,
+                              color: kEspresso,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const SizedBox(height: 24),
+            if (_purchaseError != null)
+              Text(
+                _purchaseError!,
+                textAlign: TextAlign.center,
+                style: arabicStyle(fontSize: 12, color: Colors.redAccent),
+              ),
+            const Spacer(flex: 1),
+          ],
+        ),
+      ),
+    );
   }
 
-  Widget _buildContent() {
+  Widget _buildBottomBar() {
+    final isLast = _currentPage == 3;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 48),
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ShaderMask(
-            shaderCallback: (bounds) => const LinearGradient(
-              colors: [Color(0xFFE8C84A), Color(0xFFC9A227), Color(0xFFA07C1A)],
-            ).createShader(bounds),
-            child: Text(
-              AppLocalizations.of(context).appTitle,
+          // Page indicator
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(4, (i) {
+              final active = i == _currentPage;
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                width: active ? 24 : 8,
+                height: 8,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(4),
+                  color: active
+                      ? kGold
+                      : kSand.withValues(alpha: 0.35),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 20),
+          // CTA button
+          if (isLast) ...[
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _purchasing || _loadingOfferings || _monthlyPackage == null ? null : _purchase,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kGold,
+                  foregroundColor: kOud,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  elevation: 6,
+                  shadowColor: kGold.withValues(alpha: 0.4),
+                ),
+                child: _purchasing
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          color: kOud,
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : Text(
+                        context.t('Start free trial - one week free'),
+                        style: arabicStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: kOud,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: _onSkip,
+              child: Text(
+                context.t('Skip'),
+                style: arabicStyle(fontSize: 14, color: kWarmGray),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              context.t('After trial: 19.99 SAR/month'),
+              textAlign: TextAlign.center,
               style: arabicStyle(
-                fontSize: 56,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
+                fontSize: 11,
+                color: kSand,
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            AppLocalizations.of(context).onboardingTitle1,
-            textAlign: TextAlign.center,
-            style: arabicStyle(
-              fontSize: 16,
-              color: Colors.white.withValues(alpha: 0.75),
-              height: 1.7,
-            ),
-          ),
-          const SizedBox(height: 32),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: widget.onDone,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kGold,
-                foregroundColor: kOud,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+          ] else ...[
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _onNext,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kGold,
+                  foregroundColor: kOud,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  elevation: 6,
+                  shadowColor: kGold.withValues(alpha: 0.4),
                 ),
-                elevation: 8,
-                shadowColor: kGold.withValues(alpha: 0.4),
-              ),
-              child: Text(
-                AppLocalizations.of(context).collection,
-                style: arabicStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: kOud,
+                child: Text(
+                  context.t('Next'),
+                  style: arabicStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: kOud,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: widget.onDone,
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(
-                  color: kGold.withValues(alpha: 0.6),
-                  width: 1.5,
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              child: Text(
-                AppLocalizations.of(context).perfumes,
-                style: arabicStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white.withValues(alpha: 0.9),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            AppLocalizations.of(context).onboardingDesc1,
-            style: arabicStyle(
-              fontSize: 12,
-              color: Colors.white.withValues(alpha: 0.4),
-            ),
-          ),
+          ],
         ],
       ),
     );
   }
-}
-
-class _OnboardingBottlePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-    final gold = const Color(0xFFC9A227);
-
-    // Neck
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.40, h * 0.02, w * 0.20, h * 0.08),
-        const Radius.circular(4),
-      ),
-      Paint()
-        ..color = gold.withValues(alpha: 0.6)
-        ..style = PaintingStyle.fill,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.33, h * 0.10, w * 0.33, h * 0.04),
-        const Radius.circular(2),
-      ),
-      Paint()
-        ..color = gold.withValues(alpha: 0.4)
-        ..style = PaintingStyle.fill,
-    );
-
-    // Body
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.17, h * 0.14, w * 0.67, h * 0.77),
-        const Radius.circular(22),
-      ),
-      Paint()
-        ..color = gold.withValues(alpha: 0.08)
-        ..style = PaintingStyle.fill,
-    );
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.17, h * 0.14, w * 0.67, h * 0.77),
-        const Radius.circular(22),
-      ),
-      Paint()
-        ..color = gold.withValues(alpha: 0.35)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
-    );
-
-    // Liquid
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.18, h * 0.52, w * 0.63, h * 0.38),
-        const Radius.circular(10),
-      ),
-      Paint()
-        ..color = gold.withValues(alpha: 0.12)
-        ..style = PaintingStyle.fill,
-    );
-
-    // Shine
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(w * 0.23, h * 0.19, w * 0.13, h * 0.42),
-        const Radius.circular(8),
-      ),
-      Paint()
-        ..color = Colors.white.withValues(alpha: 0.06)
-        ..style = PaintingStyle.fill,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_OnboardingBottlePainter old) => false;
 }

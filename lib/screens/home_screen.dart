@@ -30,6 +30,7 @@ class HomeScreen extends StatefulWidget {
   final Future<void> Function(Perfume, bool isFavorite)? onToggleFavorite;
   final VoidCallback? onRequireAuth;
   final VoidCallback onSearchTap;
+  final VoidCallback? onAiScanTap;
   const HomeScreen({
     super.key,
     required this.perfumes,
@@ -44,6 +45,7 @@ class HomeScreen extends StatefulWidget {
     this.onToggleFavorite,
     this.onRequireAuth,
     required this.onSearchTap,
+    this.onAiScanTap,
   });
 
   @override
@@ -264,6 +266,8 @@ class _HomeScreenState extends State<HomeScreen> {
               SliverToBoxAdapter(child: _buildTopBar()),
               SliverToBoxAdapter(child: _buildHijriDate()),
               SliverToBoxAdapter(child: _buildFeaturedBanner()),
+              if (widget.onAiScanTap != null)
+                SliverToBoxAdapter(child: _buildAiScanBanner()),
               SliverToBoxAdapter(
                 child: _buildSectionHeader(
                   AppLocalizations.of(context).categories,
@@ -554,6 +558,84 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAiScanBanner() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+      child: GestureDetector(
+        onTap: widget.onAiScanTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: kGold.withValues(alpha: 0.35), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: kGold.withValues(alpha: 0.10),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            textDirection: TextDirection.rtl,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [kGoldLight, kGold],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.camera_alt_rounded,
+                  color: kOud,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      context.t('📸 Scan any perfume and know everything about it'),
+                      style: arabicStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: kOud,
+                        height: 1.3,
+                      ),
+                      textAlign: TextAlign.right,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      context.t('AI-powered perfume recognition'),
+                      style: arabicStyle(
+                        fontSize: 12,
+                        color: kWarmGray,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.arrow_back_ios_rounded,
+                color: kGold,
+                size: 16,
+              ),
+            ],
           ),
         ),
       ),

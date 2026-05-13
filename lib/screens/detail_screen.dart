@@ -4,6 +4,7 @@ import 'package:share_plus/share_plus.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/hardcoded_localizations.dart';
 import '../services/subscription_service.dart';
+import '../services/free_usage_service.dart';
 import '../theme.dart';
 import '../models/perfume.dart';
 import '../widgets/bottle_icon.dart';
@@ -21,6 +22,7 @@ class DetailScreen extends StatefulWidget {
   final Future<void> Function(int rating, String? body)? onSaveReview;
   final Future<List<UserReview>> Function()? onLoadPerfumeReviews;
   final VoidCallback? onRequireUpgrade;
+  final VoidCallback? onFindAlternatives;
   final VoidCallback onBack;
   const DetailScreen({
     super.key,
@@ -33,6 +35,7 @@ class DetailScreen extends StatefulWidget {
     this.onSaveReview,
     this.onLoadPerfumeReviews,
     this.onRequireUpgrade,
+    this.onFindAlternatives,
     required this.onBack,
   });
 
@@ -105,6 +108,12 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Future<void> _submitReview() async {
     if (_userRating == 0 || widget.onSaveReview == null) return;
+    final isPro = SubscriptionService.instance.isPro.value;
+    if (!isPro && !FreeUsageService.instance.consumeReview()) {
+      widget.onRequireUpgrade?.call();
+      return;
+    }
+    FocusManager.instance.primaryFocus?.unfocus();
     setState(() => _savingReview = true);
     try {
       await widget.onSaveReview!(_userRating, _reviewBodyCtrl.text);
@@ -157,12 +166,35 @@ class _DetailScreenState extends State<DetailScreen> {
                   ),
                   onPressed: _savingFavorite ? null : _toggleFavorite,
                 ),
-                IconButton(
-                  icon: const Icon(Icons.share_rounded, color: Colors.white),
-                  onPressed: () {
-                    final p = widget.perfume;
-                    Share.share('${p.name} - ${p.brand}\n${p.rating} ★');
-                  },
+                Builder(
+                  builder: (btnCtx) => IconButton(
+                    icon: const Icon(Icons.share_rounded, color: Colors.white),
+                    onPressed: () {
+                      final p = widget.perfume;
+                      final box = btnCtx.findRenderObject() as RenderBox?;
+                      final notes = [
+                        ...p.topNotes,
+                        ...p.heartNotes,
+                        ...p.baseNotes,
+                      ].take(5).map((n) => n.name).join(', ');
+                      final desc = p.description;
+                      final descSnippet = desc != null && desc.isNotEmpty
+                          ? (desc.length > 120 ? '${desc.substring(0, 120)}…' : desc)
+                          : null;
+                      final lines = [
+                        '${p.name} — ${p.brand}',
+                        '${p.rating} ★${p.count != '0' ? ' (${p.count})' : ''}',
+                        if (notes.isNotEmpty) '🌸 $notes',
+                        if (descSnippet != null) descSnippet,
+                      ];
+                      Share.share(
+                        lines.join('\n'),
+                        sharePositionOrigin: box == null
+                            ? null
+                            : box.localToGlobal(Offset.zero) & box.size,
+                      );
+                    },
+                  ),
                 ),
               ],
               flexibleSpace: FlexibleSpaceBar(
@@ -234,6 +266,8 @@ class _DetailScreenState extends State<DetailScreen> {
                     ),
                     const SizedBox(height: 16),
                     _buildStatusCard(),
+                    const SizedBox(height: 16),
+                    _buildAlternativesButton(),
                     const SizedBox(height: 16),
                     _buildNotesPyramid(),
                     if (p.description != null) ...[
@@ -381,6 +415,44 @@ class _DetailScreenState extends State<DetailScreen> {
     } finally {
       if (mounted) setState(() => _savingFavorite = false);
     }
+  }
+
+  void _onDiscoverAlternatives() {
+    final isPro = SubscriptionService.instance.isPro.value;
+    final hasCredits = FreeUsageService.instance.dupeFinderLeft.value > 0;
+    if (!isPro && !hasCredits) {
+      widget.onRequireUpgrade?.call();
+      return;
+    }
+    widget.onFindAlternatives?.call();
+  }
+
+  Widget _buildAlternativesButton() {
+    if (widget.onFindAlternatives == null) return const SizedBox.shrink();
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: _onDiscoverAlternatives,
+        icon: const Icon(Icons.saved_search_rounded, size: 18),
+        label: Text(
+          context.t('Discover Alternatives'),
+          style: arabicStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: kOud,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: kGold,
+          foregroundColor: kOud,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          elevation: 6,
+        ),
+      ),
+    );
   }
 
   Widget _buildNotesPyramid() {
@@ -630,12 +702,18 @@ class _DetailScreenState extends State<DetailScreen> {
               (i) => GestureDetector(
                 onTap: widget.onSaveReview == null
                     ? null
-                    : !SubscriptionService.instance.isPro.value
-                        ? widget.onRequireUpgrade
-                        : () => setState(() {
-                              _userRating = i + 1;
-                              _reviewSaved = false;
-                            }),
+                    : () {
+                        final isPro = SubscriptionService.instance.isPro.value;
+                        final hasFree = FreeUsageService.instance.reviewLeft.value > 0;
+                        if (!isPro && !hasFree) {
+                          widget.onRequireUpgrade?.call();
+                          return;
+                        }
+                        setState(() {
+                          _userRating = i + 1;
+                          _reviewSaved = false;
+                        });
+                      },
                 child: Padding(
                   padding: const EdgeInsets.only(left: 2),
                   child: Icon(

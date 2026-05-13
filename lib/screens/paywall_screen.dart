@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 
+import '../l10n/app_localizations.dart';
 import '../l10n/hardcoded_localizations.dart';
-import '../services/subscription_service.dart';
 import '../theme.dart';
+import 'settings/privacy_screen.dart';
+import 'settings/terms_screen.dart';
 
 class PaywallScreen extends StatefulWidget {
   /// Called when the screen should be dismissed. If null, uses Navigator.pop.
@@ -33,23 +35,33 @@ class _PaywallScreenState extends State<PaywallScreen> {
 
   Future<void> _loadOfferings() async {
     try {
-      final offerings = await SubscriptionService.instance.getOfferings();
+      final offerings = await Purchases.getOfferings();
       if (!mounted) return;
-      final packages = offerings.current?.availablePackages ?? [];
-      if (packages.isEmpty) {
+
+      final current = offerings.current;
+      if (current == null) {
         setState(() {
           _errorMessage = context.t('Could not load subscription options.');
           _loading = false;
         });
         return;
       }
-      final yearly = packages.firstWhere(
-        (p) => p.storeProduct.identifier.contains('yearly'),
-        orElse: () => packages.first,
-      );
+
+      final monthly = current.monthly;
+      final yearly = current.annual;
+
+      if (monthly == null && yearly == null) {
+        setState(() {
+          _errorMessage = context.t('Could not load subscription options.');
+          _loading = false;
+        });
+        return;
+      }
+
       setState(() {
         _offerings = offerings;
-        _selectedPackage = yearly;
+        _selectedPackage = yearly ?? monthly;
+        _yearlySelected = yearly != null;
         _loading = false;
       });
     } catch (e) {
@@ -62,19 +74,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
     }
   }
 
-  Package? get _yearlyPackage {
-    return _offerings?.current?.availablePackages.firstWhere(
-      (p) => p.storeProduct.identifier.contains('yearly'),
-      orElse: () => _offerings!.current!.availablePackages.first,
-    );
-  }
+  Package? get _yearlyPackage => _offerings?.current?.annual;
 
-  Package? get _monthlyPackage {
-    return _offerings?.current?.availablePackages.firstWhere(
-      (p) => p.storeProduct.identifier.contains('monthly'),
-      orElse: () => _offerings!.current!.availablePackages.last,
-    );
-  }
+  Package? get _monthlyPackage => _offerings?.current?.monthly;
 
   void _dismiss() {
     if (widget.onClose != null) {
@@ -84,26 +86,40 @@ class _PaywallScreenState extends State<PaywallScreen> {
     }
   }
 
-  Future<void> _purchase() async {
+  Future<bool> _purchase() async {
     final package = _selectedPackage;
-    if (package == null) return;
+    if (package == null) return false;
+
     setState(() => _purchasing = true);
     try {
-      await SubscriptionService.instance.purchasePackage(package);
-      if (!mounted) return;
-      _dismiss();
+      final customerInfo = await Purchases.purchasePackage(package);
+      if (!mounted) return false;
+
+      final isActive =
+          customerInfo.entitlements.active.containsKey('Itri Pro');
+      if (isActive) {
+        _dismiss();
+        return true;
+      }
+
+      setState(
+        () => _errorMessage = context.t('Purchase failed. Please try again.'),
+      );
+      return false;
     } on PurchasesErrorCode catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       if (e != PurchasesErrorCode.purchaseCancelledError) {
         setState(
           () => _errorMessage = context.t('Purchase failed. Please try again.'),
         );
       }
+      return false;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(
         () => _errorMessage = context.t('Purchase failed. Please try again.'),
       );
+      return false;
     } finally {
       if (mounted) setState(() => _purchasing = false);
     }
@@ -112,7 +128,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
   Future<void> _restore() async {
     setState(() => _restoring = true);
     try {
-      final info = await SubscriptionService.instance.restorePurchases();
+      final info = await Purchases.restorePurchases();
       if (!mounted) return;
       final isPro = info.entitlements.active.containsKey('Itri Pro');
       if (isPro) {
@@ -142,8 +158,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
         child: _loading
             ? const Center(child: CircularProgressIndicator(color: kGold))
             : _errorMessage != null && _offerings == null
-            ? _buildError()
-            : _buildContent(isRtl),
+                ? _buildError()
+                : _buildContent(isRtl),
       ),
     );
   }
@@ -260,16 +276,16 @@ class _PaywallScreenState extends State<PaywallScreen> {
               ),
               const SizedBox(height: 12),
               Text(
-                context.t('Itri Pro'),
+                context.t('Try Premium for free'),
                 style: arabicStyle(
                   fontSize: 26,
                   fontWeight: FontWeight.w900,
                   color: kGold,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(
-                context.t('Unlock the full fragrance experience'),
+                context.t('7 days free, then subscription starts\nCancel anytime'),
                 textAlign: TextAlign.center,
                 style: arabicStyle(fontSize: 13, color: Colors.white70),
               ),
@@ -290,17 +306,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
 
   Widget _buildFeatures() {
     final features = [
-      (
-        Icons.auto_awesome_rounded,
-        context.t('AI-powered scent recommendations'),
-      ),
-      (
-        Icons.manage_search_rounded,
-        context.t('Unlimited dupe finder searches'),
-      ),
-      (Icons.grid_view_rounded, context.t('Unlimited collection tracking')),
-      (Icons.bar_chart_rounded, context.t('Advanced collection analytics')),
-      (Icons.star_rounded, context.t('Priority access to new features')),
+      context.t('All perfume alternatives'),
+      context.t('Detailed comparisons'),
+      context.t('Save favorites'),
+      context.t('Daily updates'),
     ];
 
     return Container(
@@ -316,23 +325,18 @@ class _PaywallScreenState extends State<PaywallScreen> {
             padding: const EdgeInsets.symmetric(vertical: 7),
             child: Row(
               children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: kGold.withValues(alpha: 0.15),
-                  ),
-                  child: Icon(f.$1, color: kGold, size: 16),
+                const Icon(
+                  Icons.check_circle_rounded,
+                  color: kSuccess,
+                  size: 20,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    f.$2,
+                    f,
                     style: arabicStyle(fontSize: 13, color: Colors.white),
                   ),
                 ),
-                const Icon(Icons.check_circle_rounded, color: kGold, size: 18),
               ],
             ),
           );
@@ -354,7 +358,6 @@ class _PaywallScreenState extends State<PaywallScreen> {
                 package: yearly,
                 isYearly: true,
                 isSelected: _yearlySelected,
-                badge: context.t('Best Value'),
               ),
             ),
             const SizedBox(width: 10),
@@ -367,11 +370,6 @@ class _PaywallScreenState extends State<PaywallScreen> {
             ),
           ],
         ),
-        if (_yearlySelected && yearly != null && monthly != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: _buildSavingsBadge(yearly, monthly),
-          ),
       ],
     );
   }
@@ -380,13 +378,13 @@ class _PaywallScreenState extends State<PaywallScreen> {
     required Package? package,
     required bool isYearly,
     required bool isSelected,
-    String? badge,
   }) {
     if (package == null) return const SizedBox.shrink();
 
     final price = package.storeProduct.priceString;
     final period = isYearly ? context.t('/ year') : context.t('/ month');
     final title = isYearly ? context.t('Yearly') : context.t('Monthly');
+    const selectedBlue = Color(0xFF3B82F6);
 
     return GestureDetector(
       onTap: () => setState(() {
@@ -397,49 +395,53 @@ class _PaywallScreenState extends State<PaywallScreen> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          gradient: isSelected
-              ? const LinearGradient(
-                  colors: [Color(0xFF2E1A00), Color(0xFF1A0A04)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : null,
-          color: isSelected ? null : Colors.white.withValues(alpha: 0.05),
+          color: Colors.white.withValues(alpha: 0.05),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: isSelected ? kGold : Colors.white24,
-            width: isSelected ? 1.5 : 1,
+            color: isSelected ? selectedBlue : Colors.white24,
+            width: isSelected ? 2 : 1,
           ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (badge != null)
-              Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [kGoldLight, kGold]),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  badge,
-                  style: arabicStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    color: kOud,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: arabicStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: isSelected ? Colors.white : Colors.white70,
+                    ),
                   ),
                 ),
-              ),
-            Text(
-              title,
-              style: arabicStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: isSelected ? kGold : Colors.white70,
-              ),
+                if (isYearly)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: kSuccess.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: kSuccess.withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: Text(
+                      context.t('Save 38%'),
+                      style: arabicStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: kSuccess,
+                      ),
+                    ),
+                  ),
+              ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Text(
               price,
               style: arabicStyle(
@@ -450,34 +452,20 @@ class _PaywallScreenState extends State<PaywallScreen> {
             ),
             Text(
               period,
-              style: arabicStyle(fontSize: 10, color: Colors.white54),
+              style: arabicStyle(fontSize: 11, color: Colors.white54),
             ),
+            if (isYearly) ...[
+              const SizedBox(height: 6),
+              Text(
+                context.t('7 days free'),
+                style: arabicStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: kGold,
+                ),
+              ),
+            ],
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSavingsBadge(Package yearly, Package monthly) {
-    final yearlyMonthlyPrice = yearly.storeProduct.price / 12;
-    final monthlyPrice = monthly.storeProduct.price;
-    if (monthlyPrice <= 0) return const SizedBox.shrink();
-    final savingsPct = ((1 - yearlyMonthlyPrice / monthlyPrice) * 100).round();
-    if (savingsPct <= 0) return const SizedBox.shrink();
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      decoration: BoxDecoration(
-        color: kGold.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: kGold.withValues(alpha: 0.3)),
-      ),
-      child: Text(
-        context.t('Save {pct}% vs monthly').replaceAll('{pct}', '$savingsPct'),
-        style: arabicStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: kGold,
         ),
       ),
     );
@@ -518,7 +506,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
                 child: SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(color: kOud, strokeWidth: 2),
+                  child: CircularProgressIndicator(
+                    color: kOud,
+                    strokeWidth: 2,
+                  ),
                 ),
               )
             : Text(
@@ -541,7 +532,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
           ? const SizedBox(
               width: 16,
               height: 16,
-              child: CircularProgressIndicator(color: kSand, strokeWidth: 2),
+              child: CircularProgressIndicator(
+                color: kSand,
+                strokeWidth: 2,
+              ),
             )
           : Text(
               context.t('Restore Purchases'),
@@ -551,12 +545,56 @@ class _PaywallScreenState extends State<PaywallScreen> {
   }
 
   Widget _buildLegalNote() {
-    return Text(
-      context.t(
-        'Subscription renews automatically. Cancel anytime in Settings.',
-      ),
-      textAlign: TextAlign.center,
-      style: arabicStyle(fontSize: 10, color: Colors.white30),
+    return Column(
+      children: [
+        Text(
+          context.t(
+            'Subscription renews automatically. You can cancel anytime.',
+          ),
+          textAlign: TextAlign.center,
+          style: arabicStyle(fontSize: 10, color: Colors.white30),
+        ),
+        const SizedBox(height: 8),
+        _buildLegalLinks(),
+      ],
+    );
+  }
+
+  Widget _buildLegalLinks() {
+    final style = arabicStyle(fontSize: 10, color: kSand);
+    final tapStyle = arabicStyle(
+      fontSize: 10,
+      color: kGold,
+      fontWeight: FontWeight.w600,
+    );
+
+    return Wrap(
+      alignment: WrapAlignment.center,
+      children: [
+        GestureDetector(
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const TermsScreen()),
+            );
+          },
+          child: Text(
+            AppLocalizations.of(context).termsOfUse,
+            style: tapStyle,
+          ),
+        ),
+        Text('  •  ', style: style),
+        GestureDetector(
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const PrivacyScreen()),
+            );
+          },
+          child: Text(
+            AppLocalizations.of(context).privacyPolicy,
+            style: tapStyle,
+          ),
+        ),
+      ],
     );
   }
 }

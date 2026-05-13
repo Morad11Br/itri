@@ -43,7 +43,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>نحتاج إلى الوصول إلى الصور لاختيار صورة زجاجة العطر من معرض الصور</string>
 	<key>NSUserTrackingUsageDescription</key>
-	<string>نستخدم هذه البيانات لتحسين تجربتك وتقديم محتوى مخصص</string>
+	<string>نستخدم معرّف الجهاز لقياس أداء الإعلانات وتحسين عروض الاشتراك المقدمة لك.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -75,12 +75,11 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 	</array>
 </dict>
 </plist>

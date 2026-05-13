@@ -4,11 +4,14 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/hardcoded_localizations.dart';
 import '../services/subscription_service.dart';
+import '../services/free_usage_service.dart';
 import '../models/dupe_recommendation.dart';
 import '../models/perfume.dart';
 import '../theme.dart';
 import '../widgets/bottle_icon.dart';
 import '../widgets/perfume_image.dart';
+import '../widgets/paywall_sheet.dart';
+import 'bottle_reveal_screen.dart';
 
 typedef ScentFinder =
     Future<List<Perfume>> Function({
@@ -17,6 +20,8 @@ typedef ScentFinder =
       required List<String> seasonAccords,
       String? gender,
       int limit,
+      String? priceTier,
+      List<String>? tierBrands,
     });
 
 class ScentFinderScreen extends StatefulWidget {
@@ -30,6 +35,7 @@ class ScentFinderScreen extends StatefulWidget {
   onFindDupesByAi;
   final FutureOr<void> Function(Perfume)? onPerfumeTap;
   final VoidCallback? onRequireUpgrade;
+  final Perfume? initialReference;
 
   const ScentFinderScreen({
     super.key,
@@ -39,6 +45,7 @@ class ScentFinderScreen extends StatefulWidget {
     this.onFindDupesByAi,
     this.onPerfumeTap,
     this.onRequireUpgrade,
+    this.initialReference,
   });
 
   @override
@@ -57,14 +64,28 @@ class _ScentFinderScreenState extends State<ScentFinderScreen> {
   Perfume? _reference;
   bool _loadingReference = false;
 
-  // Clone results
-  List<_DupeResult> _dupes = const [];
-  bool _loadingDupes = false;
-  bool _showDupes = false;
-  String? _error;
-  String? _referenceEstimatedPrice;
-
   int? get _referencePriceSar => int.tryParse(_priceCtrl.text.trim());
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialReference != null) {
+      _reference = widget.initialReference;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ScentFinderScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialReference != oldWidget.initialReference) {
+      if (widget.initialReference != null) {
+        setState(() {
+          _reference = widget.initialReference;
+          _searchCtrl.clear();
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -103,8 +124,6 @@ class _ScentFinderScreenState extends State<ScentFinderScreen> {
     setState(() {
       _loadingReference = true;
       _searchResults = const [];
-      _showDupes = false;
-      _dupes = const [];
     });
 
     Perfume detail = p;
@@ -126,46 +145,60 @@ class _ScentFinderScreenState extends State<ScentFinderScreen> {
     final ref = _reference;
     if (ref == null) return;
 
-    if (!SubscriptionService.instance.isPro.value) {
-      widget.onRequireUpgrade?.call();
+    final isPro = SubscriptionService.instance.isPro.value;
+    if (!isPro && !FreeUsageService.instance.consumeDupeFinder()) {
+      if (!mounted) return;
+      await PaywallBottomSheet.show(
+        context,
+        message: context.t(
+          'You used your free trials 🔓 Activate Premium to discover unlimited alternatives',
+        ),
+      );
       return;
     }
 
-    setState(() {
-      _showDupes = true;
-      _loadingDupes = true;
-      _error = null;
-      _dupes = const [];
-    });
+    // Capture price before async gap
+    final refPrice = _referencePriceSar;
 
-    // AI path — preferred
-    if (widget.onFindDupesByAi != null) {
-      try {
-        final result = await widget.onFindDupesByAi!(ref, _referencePriceSar);
-        if (!mounted) return;
-        setState(() {
-          _referenceEstimatedPrice = result.referencePriceRangeSar;
-          _dupes = result.dupes
-              .map(
-                (r) => _DupeResult(
-                  perfume: r.perfume,
-                  similarity: r.similarityPct.toDouble(),
-                  aiReason: r.reason,
-                  priceRangeSar: r.priceRangeSar,
-                ),
-              )
-              .toList();
-        });
-        return;
-      } catch (_) {
-        // fall through to Jaccard
-      } finally {
-        if (mounted) setState(() => _loadingDupes = false);
-      }
+    // Completer bridges the search future into BottleRevealScreen
+    final completer = Completer<List<BottleDupeResult>>();
+
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BottleRevealScreen(
+            reference: ref,
+            dupesFuture: completer.future,
+            referencePriceSar: refPrice,
+            onPerfumeTap: widget.onPerfumeTap,
+          ),
+          fullscreenDialog: true,
+        ),
+      );
     }
 
-    // Jaccard fallback
+    // Run AI search, fall back to Jaccard, always complete the completer
     try {
+      // AI path — preferred
+      if (widget.onFindDupesByAi != null) {
+        try {
+          final result = await widget.onFindDupesByAi!(ref, refPrice);
+          completer.complete(result.dupes
+              .map((r) => BottleDupeResult(
+                    perfume: r.perfume,
+                    matchPct: r.similarityPct.toDouble(),
+                    reason: r.reason,
+                    priceRangeSar: r.priceRangeSar,
+                  ))
+              .toList());
+          return;
+        } catch (_) {
+          // fall through to Jaccard
+        }
+      }
+
+      // Jaccard fallback
       List<Perfume> candidates = const [];
       if (widget.onFindSimilar != null && ref.accords.isNotEmpty) {
         candidates = await widget.onFindSimilar!(
@@ -173,38 +206,30 @@ class _ScentFinderScreenState extends State<ScentFinderScreen> {
           styleAccords: [],
           seasonAccords: [],
           limit: 60,
+          priceTier: null,
+          tierBrands: null,
         );
       }
 
-      final refAllNotes = {
+      final refNotes = {
         ...ref.topNotes.map((n) => n.id.toLowerCase()),
         ...ref.heartNotes.map((n) => n.id.toLowerCase()),
         ...ref.baseNotes.map((n) => n.id.toLowerCase()),
       };
 
-      final dupes =
-          candidates
-              .where((p) => p.id != ref.id)
-              .map((p) {
-                final score = _similarityScore(ref, refAllNotes, p);
-                return _DupeResult(perfume: p, similarity: score);
-              })
-              .where((d) => d.similarity >= 15)
-              .toList()
-            ..sort((a, b) => b.similarity.compareTo(a.similarity));
+      final dupes = candidates
+          .where((p) => p.id != ref.id)
+          .map((p) => BottleDupeResult(
+                perfume: p,
+                matchPct: _similarityScore(ref, refNotes, p),
+              ))
+          .where((d) => d.matchPct >= 10)
+          .toList()
+        ..sort((a, b) => b.matchPct.compareTo(a.matchPct));
 
-      if (!mounted) return;
-      setState(() => _dupes = dupes.take(20).toList());
-    } catch (e) {
-      if (!mounted) return;
-      setState(
-        () => _error = ht(
-          context,
-          'Could not load results. Check your connection and try again.',
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _loadingDupes = false);
+      completer.complete(dupes.take(20).toList());
+    } catch (_) {
+      completer.complete([]);
     }
   }
 
@@ -251,11 +276,7 @@ class _ScentFinderScreenState extends State<ScentFinderScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeader(),
-              Expanded(
-                child: _showDupes && _reference != null
-                    ? _buildDupesView()
-                    : _buildSearchView(),
-              ),
+              Expanded(child: _buildSearchView()),
             ],
           ),
         ),
@@ -271,27 +292,6 @@ class _ScentFinderScreenState extends State<ScentFinderScreen> {
         children: [
           Row(
             children: [
-              if (_showDupes)
-                GestureDetector(
-                  onTap: () => setState(() {
-                    _showDupes = false;
-                    _dupes = const [];
-                  }),
-                  child: Container(
-                    margin: const EdgeInsets.only(left: 10),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(10),
-                      boxShadow: kCardShadow,
-                    ),
-                    child: const Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      size: 15,
-                      color: kOud,
-                    ),
-                  ),
-                ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -353,6 +353,8 @@ class _ScentFinderScreenState extends State<ScentFinderScreen> {
           Expanded(child: _buildSearchResults()),
         if (showEmpty)
           Expanded(child: _buildEmptyState()),
+        if (_searchCtrl.text.isEmpty && !_searching && !showEmpty)
+          const Spacer(),
       ],
     );
   }
@@ -403,42 +405,12 @@ class _ScentFinderScreenState extends State<ScentFinderScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                context.t('How it works'),
-                style: arabicStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(width: 6),
-              ValueListenableBuilder<bool>(
-                valueListenable: SubscriptionService.instance.isPro,
-                builder: (context, isPro, _) => isPro
-                    ? const SizedBox.shrink()
-                    : Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [kGoldLight, kGold],
-                          ),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          'Pro ✨',
-                          style: arabicStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            color: kOud,
-                          ),
-                        ),
-                      ),
-              ),
-            ],
+          Text(
+            context.t('How it works'),
+            style: arabicStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 14),
           ...steps.asMap().entries.map((e) {
@@ -773,30 +745,6 @@ class _ScentFinderScreenState extends State<ScentFinderScreen> {
             ),
           ],
           const SizedBox(height: 12),
-          if (_referenceEstimatedPrice != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.auto_awesome_rounded,
-                    size: 13,
-                    color: kGold,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    ht(context, 'Estimated price: ~{price} SAR', {
-                      'price': _referenceEstimatedPrice,
-                    }),
-                    style: arabicStyle(
-                      fontSize: 12,
-                      color: kGold,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
           Row(
             children: [
               Expanded(
@@ -864,288 +812,74 @@ class _ScentFinderScreenState extends State<ScentFinderScreen> {
   }
 
   Widget _buildFindButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
-        onPressed: _findClones,
-        icon: const Icon(Icons.saved_search_rounded, size: 18),
-        label: Text(
-          context.t('Find closest alternatives'),
-          style: arabicStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: kOud,
-          ),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: kGold,
-          foregroundColor: kOud,
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-          elevation: 6,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDupesView() {
-    final ref = _reference!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          child: Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: kGoldPale,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: _buildPerfumeImage(ref, 20),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      ht(context, 'Alternatives: {name}', {'name': ref.name}),
-                      style: arabicStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    Row(
-                      children: [
-                        Text(
-                          ref.brand,
-                          style: serifStyle(fontSize: 11, italic: true),
-                        ),
-                        if (_referenceEstimatedPrice != null) ...[
-                          const SizedBox(width: 6),
-                          Text(
-                            '~$_referenceEstimatedPrice ${AppLocalizations.of(context).sar}',
-                            style: arabicStyle(
-                              fontSize: 11,
-                              color: kGold,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
+    return ValueListenableBuilder<bool>(
+      valueListenable: SubscriptionService.instance.isPro,
+      builder: (_, isPro, __) {
+        if (isPro) {
+          return SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _findClones,
+              icon: const Icon(Icons.saved_search_rounded, size: 18),
+              label: Text(
+                context.t('Find closest alternatives'),
+                style: arabicStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: kOud,
                 ),
               ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: _loadingDupes
-              ? const Center(
-                  child: SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: kGold,
-                    ),
-                  ),
-                )
-              : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: arabicStyle(fontSize: 13, color: kWarmGray),
-                    ),
-                  ),
-                )
-              : _dupes.isEmpty
-              ? Center(
-                  child: Text(
-                    context.t(
-                      'We could not find enough alternatives for this perfume.',
-                    ),
-                    style: arabicStyle(fontSize: 13, color: kWarmGray),
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
-                  itemCount: _dupes.length,
-                  itemBuilder: (context, i) => _buildDupeCard(_dupes[i], i),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: kGold,
+                foregroundColor: kOud,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
                 ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDupeCard(_DupeResult result, int rank) {
-    final p = result.perfume;
-    final pct = result.similarity;
-    final color = _similarityColor(pct);
-
-    return GestureDetector(
-      onTap: widget.onPerfumeTap == null ? null : () => widget.onPerfumeTap!(p),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: kCardShadow,
-          border: Border(right: BorderSide(color: p.accent, width: 3)),
-        ),
-        child: Row(
-          children: [
-            // Similarity badge
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.10),
-                shape: BoxShape.circle,
-                border: Border.all(color: color, width: 2),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    '${pct.round()}%',
-                    style: arabicStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: color,
-                    ),
-                  ),
-                ],
+                elevation: 6,
               ),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(p.brand, style: serifStyle(fontSize: 11, italic: true)),
-                  Text(
-                    p.name,
-                    style: arabicStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  if (result.aiReason.isNotEmpty)
-                    Text(
-                      result.aiReason,
-                      style: arabicStyle(
-                        fontSize: 11,
-                        color: kGold,
-                        height: 1.4,
-                      ),
-                    )
-                  else if (p.accords.isNotEmpty)
-                    Text(
-                      p.accords.take(3).map(context.t).join(' · '),
-                      style: arabicStyle(fontSize: 11, color: kWarmGray),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '${p.rating.toStringAsFixed(1)} ★',
+          );
+        }
+        return ValueListenableBuilder<int>(
+          valueListenable: FreeUsageService.instance.dupeFinderLeft,
+          builder: (_, left, __) {
+            final exhausted = left <= 0;
+            return SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _findClones,
+                icon: Icon(
+                  exhausted ? Icons.lock_rounded : Icons.saved_search_rounded,
+                  size: 18,
+                ),
+                label: Text(
+                  exhausted
+                      ? context.t('Premium')
+                      : '${context.t('Find closest alternatives')}  •  $left ${context.t('Free')}',
                   style: arabicStyle(
-                    fontSize: 13,
+                    fontSize: 16,
                     fontWeight: FontWeight.w700,
-                    color: kGold,
+                    color: kOud,
                   ),
                 ),
-                const SizedBox(height: 4),
-                if (result.priceRangeSar != null) ...[
-                  Text(
-                    '~${result.priceRangeSar} ${AppLocalizations.of(context).sar}',
-                    style: arabicStyle(fontSize: 10, color: kWarmGray),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: kGold,
+                  foregroundColor: kOud,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  if (_referencePriceSar != null)
-                    _buildSavingsBadge(
-                      result.priceRangeSar!,
-                      _referencePriceSar!,
-                    ),
-                ] else
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [kGoldLight, kGold],
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      context.t('View'),
-                      style: arabicStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: kOud,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
+                  elevation: 6,
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
-  Widget _buildSavingsBadge(String priceRange, int refPrice) {
-    // Parse midpoint from "150-300" or "200"
-    final parts = priceRange.split('-');
-    final low = int.tryParse(parts.first.trim()) ?? 0;
-    final high = parts.length > 1
-        ? (int.tryParse(parts.last.trim()) ?? low)
-        : low;
-    final mid = ((low + high) / 2).round();
-    if (mid <= 0 || refPrice <= mid) return const SizedBox.shrink();
-    final savings = ((refPrice - mid) / refPrice * 100).round();
-    return Container(
-      margin: const EdgeInsets.only(top: 3),
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: kSuccess.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: kSuccess.withValues(alpha: 0.4)),
-      ),
-      child: Text(
-        ht(context, 'Save ~{savings}%', {'savings': savings}),
-        style: arabicStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: kSuccess,
-        ),
-      ),
-    );
-  }
-
-  Color _similarityColor(double pct) {
-    if (pct >= 70) return kSuccess;
-    if (pct >= 50) return kGold;
-    if (pct >= 30) return kAmber;
-    return kWarmGray;
-  }
 
   Widget _buildPerfumeImage(Perfume p, double fallbackSize) {
     final imageUrl = p.imageUrl ?? p.fallbackImageUrl;
@@ -1167,15 +901,3 @@ class _ScentFinderScreenState extends State<ScentFinderScreen> {
   }
 }
 
-class _DupeResult {
-  final Perfume perfume;
-  final double similarity;
-  final String aiReason;
-  final String? priceRangeSar;
-  const _DupeResult({
-    required this.perfume,
-    required this.similarity,
-    this.aiReason = '',
-    this.priceRangeSar,
-  });
-}

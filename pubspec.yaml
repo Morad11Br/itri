@@ -2,7 +2,7 @@ name: itri
 description: "Itri — Your fragrance collection companion."
 
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
-version: 1.0.0+2
+version: 1.0.4+1
 
 environment:
   sdk: ^3.11.5
@@ -26,6 +26,7 @@ dependencies:
   shared_preferences: ^2.5.5
   hijri: ^3.0.0
   share_plus: ^10.0.0
+  connectivity_plus: ^6.1.4
   sign_in_with_apple: ^6.1.4
   http: ^1.2.0
   image_picker: ^1.1.2
@@ -33,6 +34,7 @@ dependencies:
   purchases_flutter: ^8.0.0
   purchases_ui_flutter: ^8.0.0
   flutter_local_notifications: ^18.0.0
+  app_tracking_transparency: ^2.0.6
 
 dev_dependencies:
   flutter_test:

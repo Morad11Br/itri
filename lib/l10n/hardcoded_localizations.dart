@@ -48,6 +48,7 @@ const Map<String, String> _ar = {
   'Added {name} to your collection': 'تمت إضافة {name} إلى مجموعتك',
   'Add failed: {error}': 'فشلت الإضافة: {error}',
   'Dupe Finder': 'كاشف البدائل',
+  'Discover Alternatives': 'اكتشف البدائل',
   'Find a similar perfume for less': 'ابحث عن عطر مشابه بسعر أقل',
   'Search for a perfume (e.g. Aventus, Baccarat...)':
       'ابحث عن عطر (مثل: Aventus, Baccarat...)',
@@ -455,6 +456,40 @@ const Map<String, String> _ar = {
   'Restore Purchases': 'استعادة المشتريات',
   'Subscription renews automatically. Cancel anytime in Settings.':
       'يتجدد الاشتراك تلقائياً. يمكنك الإلغاء في أي وقت من الإعدادات.',
+  // ── New Paywall ──────────────────────────────────────────────────────────
+  'Try Premium for free': 'جرب Premium مجاناً',
+  '7 days free, then subscription starts\nCancel anytime':
+      '7 أيام مجاناً، من بعد يبدأ الاشتراك\nالغي في أي وقت',
+  'All perfume alternatives': 'كل البدائل للعطور',
+  'Detailed comparisons': 'مقارنات مفصلة',
+  'Save favorites': 'حفظ المفضلة',
+  'Daily updates': 'تحديثات يومية',
+  '149 SAR / year': '149 ريال / سنة',
+  '19.99 SAR / month': '19.99 ريال / شهر',
+  'Subscription renews automatically. You can cancel anytime.':
+      'يتم تجديد الاشتراك تلقائياً. يمكنك الإلغاء في أي وقت.',
+  '7 days free': '7 أيام مجاناً',
+  'Save 38%': 'وفر 38%',
+  // ── Terms of Use ─────────────────────────────────────────────────────────
+  'Terms of Use': 'شروط الاستخدام',
+  'Last updated': 'آخر تحديث',
+  '1. Subscriptions': '١. الاشتراكات',
+  'Itri Pro is an auto-renewable subscription. Payment will be charged to your Apple ID account at confirmation of purchase. The subscription automatically renews unless cancelled at least 24 hours before the end of the current period. Your account will be charged for renewal within 24 hours prior to the end of the current period. You can manage and cancel your subscription in your Account Settings on the App Store.':
+      'عطري برو هو اشتراك يتجدد تلقائياً. سيتم خصم المبلغ من حساب Apple ID عند تأكيد الشراء. يتجدد الاشتراك تلقائياً ما لم يُلغَ قبل ٢٤ ساعة على الأقل من نهاية الفترة الحالية. سيتم خصم رسوم التجديد من حسابك خلال ٢٤ ساعة قبل نهاية الفترة الحالية. يمكنك إدارة اشتراكك وإلغاؤه من إعدادات حسابك في App Store.',
+  '2. Free Trials': '٢. الفترات التجريبية',
+  'If offered, any unused portion of a free trial period will be forfeited when you purchase a subscription.':
+      'إذا تم تقديم فترة تجريبية مجانية، فإن أي جزء غير مستخدم منها سيُلغى عند شراء اشتراك.',
+  '3. Refunds': '٣. الاسترداد',
+  'Refunds are handled by Apple according to the App Store policies. To request a refund, visit reportaproblem.apple.com or contact Apple Support.':
+      'تتم معالجة عمليات الاسترداد من قبل Apple وفقاً لسياسات App Store. لطلب استرداد، visit reportaproblem.apple.com أو تواصل مع دعم Apple.',
+  '4. Data & Privacy': '٤. البيانات والخصوصية',
+  'We collect only the data necessary to operate the app. Please review our Privacy Policy for full details.':
+      'نجمع فقط البيانات الضرورية لتشغيل التطبيق. يرجى مراجعة سياسة الخصوصية للاطلاع على التفاصيل الكاملة.',
+  '5. Account Termination': '٥. إنهاء الحساب',
+  'You may delete your account at any time. This will permanently remove your collection, reviews, and posts.':
+      'يمكنك حذف حسابك في أي وقت. سيؤدي ذلك إلى إزالة مجموعتك وتقييماتك ومنشوراتك نهائياً.',
+  '6. Contact': '٦. التواصل',
+  'For questions about these terms, contact us at': 'للاستفسارات حول هذه الشروط، تواصل معنا على',
   // ── Profile premium card ──────────────────────────────────────────────────
   'Itri Pro — Active': 'عطري برو — نشط',
   'Manage your subscription': 'إدارة اشتراكك',
@@ -465,6 +500,97 @@ const Map<String, String> _ar = {
   'Retry': 'إعادة المحاولة',
   'Not found. Bottle QR codes are for brand verification — scan the barcode on the box instead.':
       'لم يتم العثور عليه. رموز QR على الزجاجة للتحقق من العلامة التجارية — امسح الباركود على العلبة بدلاً من ذلك.',
+  'AI MATCH': 'تطابق ذكي',
+  'MATCH': 'تطابق',
+  'Match': 'تطابق',
+  'Price tier': 'فئة السعر',
+  'Budget': 'اقتصادي',
+  'Mid': 'متوسط',
+  'Premium': 'فاخر',
+  'No internet connection. Please check your network and try again.':
+      'لا يوجد اتصال بالإنترنت. تأكد من شبكتك وحاول مجدداً.',
+  'No internet connection. Connect to search the full database.':
+      'لا يوجد اتصال بالإنترنت. اتصل للبحث في قاعدة البيانات الكاملة.',
+  // ── Bottle Reveal ────────────────────────────────────────────────────────
+  '· Analyzing ·': '· جارٍ التحليل ·',
+  '· The Ideal Alternative ·': '· البديل المثالي ·',
+  '· Results ·': '· النتائج ·',
+  // Dupe Finder, Find a similar perfume for less, Source already exist above
+  'Extracting fragrance notes…': 'استخراج الأنوتات العطرية…',
+  'Matching amber and oud base…': 'مطابقة قاعدة الكهرمان والعنبر…',
+  'Comparing 12,400 perfumes…': 'مقارنة 12,400 عطر…',
+  'Identifying the ideal alternative…': 'تحديد البديل المثالي…',
+  'Analyzing results…': 'جارٍ تحليل النتائج…',
+  'Explore alternatives ←': 'استكشف البدائل ←',
+  'Exceptional match in fragrance signature — same woody and warm notes, at a much lower price.':
+      'تطابق استثنائي في التوقيع العطري — نفس النوتات الخشبية والدافئة، بسعر أقل بكثير.',
+  'Similar to the original in core notes. An ideal choice if you are looking for the same feel on a smaller budget.':
+      'يشبه العطر الأصلي في النوتات الأساسية. اختيار مثالي إذا كنت تبحث عن نفس الإحساس بميزانية أقل.',
+  'Close in fragrance spirit, with slight differences in longevity and projection. Worth trying.':
+      'قريب في الروح العطرية، مع اختلاف بسيط في الثبات والفوحان. جدير بالتجربة.',
+  'Acceptable alternative — shares some characteristics of the original at a more economical price.':
+      'بديل مقبول — يشارك بعض خصائص العطر الأصلي بسعر أكثر اقتصادية.',
+  'Why this alternative?': 'لماذا هذا البديل؟',
+  'No alternatives found for this perfume.': 'لم يتم العثور على بدائل لهذا العطر.',
+  'Other alternatives': 'بدائل أخرى',
+  'The ideal alternative': 'البديل المثالي',
+  'Save money': 'توفير',
+  'Add to collection': 'أضف للمجموعة',
+  'SAR': 'ر.س',
+  // ── Occasion Chips ───────────────────────────────────────────────────────
+  '🔥 Strong projection': '🔥 فوحان قوي',
+  '✨ Moderate projection': '✨ فوحان متوسط',
+  '🍃 Light projection': '🍃 فوحان خفيف',
+  '🕒 Long lasting': '🕒 ثبات طويل',
+  '⏱️ Moderate longevity': '⏱️ ثبات معتدل',
+  '🌲 Woody notes': '🌲 نوتات خشبية',
+  '🌸 Floral notes': '🌸 نوتات زهرية',
+  '🍊 Fresh notes': '🍊 نوتات منعشة',
+  '🌶️ Spicy notes': '🌶️ نوتات حارة',
+  '🌙 Evening wear': '🌙 مناسب للسهرات',
+  '☀️ Day wear': '☀️ مناسب للنهار',
+  '📸 Scan any perfume and know everything about it':
+      '📸 صوّر أي عطر واعرف كل شي عنه',
+  'AI-powered perfume recognition': 'التعرف على العطر بالذكاء الاصطناعي',
+  // ── Onboarding ───────────────────────────────────────────────────────────
+  'Scan any perfume and know its details': 'صوّر أي عطر واعرف تفاصيله',
+  'AI recognizes the perfume and gives you all the information':
+      'الذكاء الاصطناعي يتعرف على العطر ويعطيك كل المعلومات',
+  'Discover perfumes with the same taste': 'اكتشف عطور بنفس الذوق',
+  'Accurate match percentage with alternatives that fit your budget':
+      'نسبة تطابق دقيقة مع بدائل بأسعار تناسبك',
+  'The perfect perfume for every occasion': 'العطر المثالي لكل مناسبة',
+  'Let AI choose for you based on weather and occasion':
+      'خلّ الذكاء الاصطناعي يختار لك حسب الجو والمناسبة',
+  'Try Atari Premium for free': 'جرّب عِطري Premium مجاناً',
+  'A full week without limits': 'أسبوع كامل بدون قيود',
+  'Unlimited perfume scans': 'سكان عطور بلا حدود',
+  'Smart alternatives for every perfume': 'بدائل ذكية لكل عطر',
+  'AI occasion recommendations': 'توصيات مناسبات بالذكاء الاصطناعي',
+  'Track your full collection': 'تتبع مجموعتك الكاملة',
+  'Start free trial - one week free': 'ابدأ التجربة المجانية - أسبوع مجاناً',
+  'Skip': 'تخطّي',
+  'After trial: 19.99 SAR/month': 'بعد الفترة التجريبية: ١٩٫٩٩ ر.س/شهرياً',
+  'Next': 'التالي',
+  // ── Paywall Bottom Sheet ─────────────────────────────────────────────────
+  'You used your free trials 🔓 Activate Premium for unlimited scans':
+      'استخدمت التجارب المجانية 🔒 فعّل Premium واستمتع بسكان بلا حدود',
+  'You used your free trials 🔓 Activate Premium to discover unlimited alternatives':
+      'استخدمت التجارب المجانية 🔒 فعّل Premium واكتشف بدائل بلا حدود',
+  'You reached the free limit 🔓 Activate Premium to track your full collection':
+      'وصلت للحد المجاني 🔒 فعّل Premium وتتبع مجموعتك كاملة',
+  'AI recommendations require Premium':
+      'التوصيات بالذكاء الاصطناعي تتطلب Premium',
+  'Later': 'لاحقاً',
+  '{count} free': '{count} مجانية',
+  'Free': 'مجانية',
+  'Collection limit reached': 'وصلت للحد المجاني',
+  '5 of 5': '٥ من ٥',
+  // ── Empty States ─────────────────────────────────────────────────────────
+  'No perfumes found matching your criteria':
+      'لم نجد عطور تطابق معاييرك',
+  'Try adjusting the occasion, season, or price filters':
+      'جرّب تغيير المناسبة، الموسم، أو فلتر السعر',
 };
 
 String ht(

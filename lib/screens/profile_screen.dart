@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
 import '../data/community_repository.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/hardcoded_localizations.dart';
@@ -153,7 +152,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       {'label': l10n.value, 'value': '34,500', 'sub': l10n.sar},
       {'label': l10n.collection, 'value': '47', 'sub': l10n.perfumes},
       {'label': l10n.reviews, 'value': '123', 'sub': l10n.reviews},
-      {'label': l10n.followers, 'value': '289', 'sub': l10n.followers},
     ];
   }
 
@@ -185,12 +183,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       },
       {'icon': '🔒', 'label': l10n.privacy, 'sub': '', 'accent': false},
       {'icon': '📤', 'label': l10n.exportData, 'sub': '', 'accent': false},
-      {
-        'icon': '🎁',
-        'label': l10n.inviteFriend,
-        'sub': context.t('Free month'),
-        'accent': true,
-      },
       {'icon': '❓', 'label': l10n.help, 'sub': '', 'accent': false},
       if (isPro)
         {
@@ -689,8 +681,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ),
       );
-    } else if (label == l10n.inviteFriend) {
-      Share.share('${l10n.shareApp}\nhttps://itri.app', subject: l10n.appTitle);
     } else if (label == l10n.help) {
       Navigator.of(
         context,
@@ -819,16 +809,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'label': l10n.reviews,
         'value': _arabicNumber(stats.reviewsCount),
         'sub': l10n.reviews,
-      },
-      {
-        'label': l10n.posts,
-        'value': _arabicNumber(stats.postsCount),
-        'sub': l10n.posts,
-      },
-      {
-        'label': l10n.followers,
-        'value': _arabicNumber(stats.followersCount),
-        'sub': l10n.followers,
       },
     ];
   }

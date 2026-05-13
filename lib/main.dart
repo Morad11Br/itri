@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,12 +11,14 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide Session;
 
 import 'l10n/app_localizations.dart';
 export 'l10n/app_localizations.dart';
+import 'l10n/hardcoded_localizations.dart';
 
 import 'data/community_repository.dart';
 import 'package:purchases_ui_flutter/purchases_ui_flutter.dart';
 
 import 'services/notification_service.dart';
 import 'services/subscription_service.dart';
+import 'services/free_usage_service.dart';
 import 'screens/paywall_screen.dart';
 import 'data/deals_repository.dart';
 import 'data/fragdb_repository.dart';
@@ -26,6 +30,7 @@ import 'theme.dart';
 import 'models/perfume.dart';
 import 'screens/auth_screen.dart';
 import 'screens/splash_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/detail_screen.dart';
 import 'screens/collection_screen.dart';
@@ -33,9 +38,24 @@ import 'screens/add_screen.dart';
 import 'screens/occasion_screen.dart';
 import 'screens/price_tracker_screen.dart';
 import 'screens/profile_screen.dart';
+import 'widgets/paywall_sheet.dart';
 import 'screens/scent_finder_screen.dart';
 
 bool kSupabaseReady = false;
+
+/// Request App Tracking Transparency permission on iOS before any SDK that
+/// reads the IDFA (e.g. RevenueCat) is initialised.
+Future<void> _requestTrackingPermission() async {
+  if (!Platform.isIOS && !Platform.isMacOS) return;
+  try {
+    final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+    if (status == TrackingStatus.notDetermined) {
+      await AppTrackingTransparency.requestTrackingAuthorization();
+    }
+  } catch (e) {
+    if (kDebugMode) debugPrint('ATT request failed: $e');
+  }
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -54,7 +74,9 @@ Future<void> main() async {
     kSupabaseReady = true;
   }
 
+  await _requestTrackingPermission();
   await SubscriptionService.instance.configure();
+  await FreeUsageService.instance.load();
   await NotificationService.instance.initialize();
 
   runApp(const AtariApp());
@@ -75,11 +97,22 @@ class AtariApp extends StatefulWidget {
 class _AtariAppState extends State<AtariApp> {
   Locale _locale = const Locale('ar');
   bool _splashDone = false;
+  bool _onboardingCompleted = false;
 
   @override
   void initState() {
     super.initState();
     unawaited(_loadLocale());
+  }
+
+  Future<void> _onSplashComplete() async {
+    final prefs = await SharedPreferences.getInstance();
+    final completed = prefs.getBool('onboarding_completed') ?? false;
+    if (!mounted) return;
+    setState(() {
+      _splashDone = true;
+      _onboardingCompleted = completed;
+    });
   }
 
   Future<void> _loadLocale() async {
@@ -113,10 +146,12 @@ class _AtariAppState extends State<AtariApp> {
         child: child!,
       ),
       home: _splashDone
-          ? const AuthGate()
-          : SplashScreen(
-              onComplete: () => setState(() => _splashDone = true),
-            ),
+          ? (_onboardingCompleted
+              ? const AuthGate()
+              : OnboardingScreen(
+                  onDone: () => setState(() => _onboardingCompleted = true),
+                ))
+          : SplashScreen(onComplete: _onSplashComplete),
     );
   }
 }
@@ -186,8 +221,9 @@ class _AppShellState extends State<AppShell> {
   String? _selectedCollectionStatus;
   bool _selectedIsFavorite = false;
   UserReview? _selectedUserReview;
-  bool _showDetail = false;
   bool _showAdd = false;
+  String? _addInitialTab;
+  Perfume? _finderInitialReference;
   int _collectionVersion = 0;
   bool _showAuth = false;
   bool _showPaywall = false;
@@ -323,6 +359,8 @@ class _AppShellState extends State<AppShell> {
     required List<String> seasonAccords,
     String? gender,
     int limit = 10,
+    String? priceTier,
+    List<String>? tierBrands,
   }) {
     return _supabaseRepository!.findPerfumesForOccasion(
       occasionAccords: occasionAccords,
@@ -330,6 +368,8 @@ class _AppShellState extends State<AppShell> {
       seasonAccords: seasonAccords,
       gender: gender,
       limit: limit,
+      priceTier: priceTier,
+      tierBrands: tierBrands,
     );
   }
 
@@ -415,8 +455,36 @@ class _AppShellState extends State<AppShell> {
       _selectedCollectionStatus = collectionStatus;
       _selectedIsFavorite = isFavorite;
       _selectedUserReview = userReview;
-      _showDetail = true;
     });
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => DetailScreen(
+        perfume: _selectedPerfume!,
+        collectionStatus: _selectedCollectionStatus,
+        isFavorite: _selectedIsFavorite,
+        initialReview: _selectedUserReview,
+        onCollectionStatusChanged: _useSupabase
+            ? (status) async => _requireAuth(() => _saveCollectionStatus(status))
+            : null,
+        onFavoriteChanged: _useSupabase
+            ? (isFav) async => _requireAuth(() => _toggleFavorite(isFav))
+            : null,
+        onSaveReview: _useSupabase && widget.user != null
+            ? (rating, body) => _requireAuth(() => _saveReview(rating, body))
+            : null,
+        onRequireUpgrade: _openPaywall,
+        onLoadPerfumeReviews: _useSupabase &&
+                _selectedPerfume != null &&
+                _selectedPerfume!.id.isNotEmpty
+            ? () => _userCollectionRepository!.loadPerfumeReviews(
+                  perfumeId: _selectedPerfume!.id,
+                )
+            : null,
+        onFindAlternatives: _useSupabase && _selectedPerfume != null
+            ? () => _onFindAlternatives(_selectedPerfume!)
+            : null,
+        onBack: () => Navigator.of(context).pop(),
+      ),
+    ));
   }
 
   Future<void> _toggleFavorite(bool isFavorite) async {
@@ -503,12 +571,18 @@ class _AppShellState extends State<AppShell> {
   Future<void> _addSearchResultToCollection(Perfume p) async {
     final userId = widget.user?.id;
     if (!_useSupabase || p.id.isEmpty || userId == null) return;
+    final paywallMsg = context.t(
+      'You reached the free limit 🔓 Activate Premium to track your full collection',
+    );
     if (!SubscriptionService.instance.isPro.value) {
       final stats = await _userCollectionRepository!.loadCollectionStats(
         userId: userId,
       );
-      if (stats.count >= 10) {
-        _openPaywall();
+      if (stats.count >= 5) {
+        if (mounted) {
+          // ignore: use_build_context_synchronously
+          await PaywallBottomSheet.show(context, message: paywallMsg);
+        }
         return;
       }
     }
@@ -536,12 +610,18 @@ class _AppShellState extends State<AppShell> {
   }) async {
     final userId = widget.user?.id;
     if (userId == null) return;
+    final paywallMsg = context.t(
+      'You reached the free limit 🔓 Activate Premium to track your full collection',
+    );
     if (!SubscriptionService.instance.isPro.value) {
       final stats = await _userCollectionRepository!.loadCollectionStats(
         userId: userId,
       );
-      if (stats.count >= 10) {
-        _openPaywall();
+      if (stats.count >= 5) {
+        if (mounted) {
+          // ignore: use_build_context_synchronously
+          await PaywallBottomSheet.show(context, message: paywallMsg);
+        }
         return;
       }
     }
@@ -569,7 +649,26 @@ class _AppShellState extends State<AppShell> {
     if (mounted) setState(() => _collectionVersion++);
   }
 
-  void _onAddTap() => setState(() => _showAdd = true);
+  void _onAddTap() => setState(() {
+        _showAdd = true;
+        _addInitialTab = null;
+      });
+
+  void _onAiScanTap() => setState(() {
+        _showAdd = true;
+        _addInitialTab = 'AI';
+      });
+
+  void _onFindAlternatives(Perfume perfume) {
+    Navigator.of(context).pop();
+    setState(() {
+      _navIndex = 3;
+      _finderInitialReference = perfume;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _finderInitialReference = null);
+    });
+  }
 
   void _requireAuthForAdd() {
     unawaited(_requireAuth(() async => _onAddTap()));
@@ -594,34 +693,6 @@ class _AppShellState extends State<AppShell> {
       );
     }
 
-    if (_showDetail && _selectedPerfume != null) {
-      return DetailScreen(
-        perfume: _selectedPerfume!,
-        collectionStatus: _selectedCollectionStatus,
-        isFavorite: _selectedIsFavorite,
-        initialReview: _selectedUserReview,
-        onCollectionStatusChanged: _useSupabase
-            ? (status) async =>
-                  _requireAuth(() => _saveCollectionStatus(status))
-            : null,
-        onFavoriteChanged: _useSupabase
-            ? (isFav) async => _requireAuth(() => _toggleFavorite(isFav))
-            : null,
-        onSaveReview: _useSupabase && widget.user != null
-            ? (rating, body) => _requireAuth(() => _saveReview(rating, body))
-            : null,
-        onRequireUpgrade: _openPaywall,
-        onLoadPerfumeReviews:
-            _useSupabase &&
-                _selectedPerfume != null &&
-                _selectedPerfume!.id.isNotEmpty
-            ? () => _userCollectionRepository!.loadPerfumeReviews(
-                perfumeId: _selectedPerfume!.id,
-              )
-            : null,
-        onBack: () => setState(() => _showDetail = false),
-      );
-    }
 
     return FutureBuilder<List<Perfume>>(
       future: _perfumesFuture,
@@ -659,7 +730,11 @@ class _AppShellState extends State<AppShell> {
                   )
                 : null,
             onIdentifyByImage: _useSupabase ? _identifyByImage : null,
-            onClose: () => setState(() => _showAdd = false),
+            initialTab: _addInitialTab,
+            onClose: () => setState(() {
+              _showAdd = false;
+              _addInitialTab = null;
+            }),
           );
         }
         return Scaffold(
@@ -701,6 +776,7 @@ class _AppShellState extends State<AppShell> {
                     ? _showLogin
                     : null,
                 onSearchTap: _onAddTap,
+                onAiScanTap: _useSupabase ? _onAiScanTap : null,
               ),
               CollectionScreen(
                 perfumes: perfumes,
@@ -746,6 +822,7 @@ class _AppShellState extends State<AppShell> {
                     : null,
                 onPerfumeTap: _onPerfumeTap,
                 onRequireUpgrade: _openPaywall,
+                initialReference: _finderInitialReference,
               ),
               widget.user != null
                   ? ProfileScreen(

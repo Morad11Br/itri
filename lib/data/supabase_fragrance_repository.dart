@@ -46,6 +46,8 @@ class SupabaseFragranceRepository {
     required List<String> seasonAccords,
     String? gender,
     int limit = 10,
+    String? priceTier,
+    List<String>? tierBrands,
   }) async {
     final allAccords = {
       ...occasionAccords.map((a) => a.trim().toLowerCase()),
@@ -56,6 +58,7 @@ class SupabaseFragranceRepository {
     var rows = await _findOccasionRows(
       accordValues: allAccords.toList(),
       gender: gender,
+      tierBrands: tierBrands,
       limit: max(limit * 12, 80),
     );
 
@@ -63,6 +66,7 @@ class SupabaseFragranceRepository {
       rows = await _findOccasionRows(
         accordValues: const [],
         gender: gender,
+        tierBrands: tierBrands,
         limit: max(limit * 12, 80),
       );
     }
@@ -84,6 +88,7 @@ class SupabaseFragranceRepository {
     required List<String> accordValues,
     required String? gender,
     required int limit,
+    List<String>? tierBrands,
   }) async {
     var query = _client
         .from('fragrances')
@@ -94,6 +99,12 @@ class SupabaseFragranceRepository {
     final genderValues = _genderFilters(gender);
     if (genderValues.isNotEmpty) {
       query = query.inFilter('gender', genderValues);
+    }
+
+    if (tierBrands != null && tierBrands.isNotEmpty) {
+      query = query.or(
+        tierBrands.map((b) => 'brand.ilike."%$b%"').join(','),
+      );
     }
 
     if (accordValues.isNotEmpty) {
@@ -147,19 +158,42 @@ class SupabaseFragranceRepository {
       }
     }
 
+    const selectFields =
+        'source_id, source_url, name, brand, image_url, fallback_image_url, '
+        'year, gender, rating, rating_votes, accords, notes';
+
     final escapedTerm = _escapeIlike(term);
     final textRows = await _client
         .from('fragrances')
-        .select(
-          'source_id, source_url, name, brand, image_url, fallback_image_url, '
-          'year, gender, rating, rating_votes, accords, notes',
-        )
+        .select(selectFields)
         .or(
           'name.ilike.%$escapedTerm%,brand.ilike.%$escapedTerm%,gender.ilike.%$escapedTerm%',
         )
         .order('popularity_score', ascending: false)
         .limit(limit);
     addRows(textRows);
+
+    // Multi-word query (e.g. "Creed Aventus"): search each token individually
+    // so "brand=Creed, name=Aventus" is found even though neither field alone
+    // contains the full phrase.
+    if (rowsById.length < limit) {
+      final tokens = _normalizeKeyword(term)
+          .split(RegExp(r'[^a-z0-9]+'))
+          .where((t) => t.length >= 2)
+          .toSet();
+      if (tokens.length > 1) {
+        final tokenFilter = tokens
+            .map((t) => 'name.ilike.%$t%,brand.ilike.%$t%')
+            .join(',');
+        final tokenRows = await _client
+            .from('fragrances')
+            .select(selectFields)
+            .or(tokenFilter)
+            .order('popularity_score', ascending: false)
+            .limit(limit * 3);
+        addRows(tokenRows);
+      }
+    }
 
     final keywordAccords = _searchAccords(term);
     if (keywordAccords.isNotEmpty && rowsById.length < limit) {

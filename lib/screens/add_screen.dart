@@ -6,9 +6,12 @@ import 'package:image_picker/image_picker.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/hardcoded_localizations.dart';
 import '../models/perfume.dart';
+import '../services/free_usage_service.dart';
+import '../services/subscription_service.dart';
 import '../theme.dart';
 import '../widgets/bottle_icon.dart';
 import '../widgets/perfume_image.dart';
+import '../widgets/paywall_sheet.dart';
 
 class AddScreen extends StatefulWidget {
   final List<Perfume> perfumes;
@@ -30,6 +33,7 @@ class AddScreen extends StatefulWidget {
   Function(String base64Image)?
   onIdentifyByImage;
   final VoidCallback onClose;
+  final String? initialTab;
   const AddScreen({
     super.key,
     required this.perfumes,
@@ -39,6 +43,7 @@ class AddScreen extends StatefulWidget {
     this.onAddToCollection,
     this.onSaveManualEntry,
     this.onIdentifyByImage,
+    this.initialTab,
   });
 
   @override
@@ -46,7 +51,7 @@ class AddScreen extends StatefulWidget {
 }
 
 class _AddScreenState extends State<AddScreen> {
-  String _tab = 'Search';
+  late String _tab = widget.initialTab ?? 'Search';
   String _concentration = 'EDP';
   String _source = 'Purchase';
   final Set<String> _selectedNotes = {};
@@ -98,6 +103,21 @@ class _AddScreenState extends State<AddScreen> {
 
   Future<void> _pickImage(ImageSource source) async {
     if (widget.onIdentifyByImage == null) return;
+
+    final isPro = SubscriptionService.instance.isPro.value;
+    if (!isPro) {
+      final hasCredits = FreeUsageService.instance.consumeAiScan();
+      if (!hasCredits) {
+        if (!mounted) return;
+        await PaywallBottomSheet.show(
+          context,
+          message: context.t(
+            'You used your free trials 🔓 Activate Premium for unlimited scans',
+          ),
+        );
+        return;
+      }
+    }
     final picked = await _picker.pickImage(
       source: source,
       maxWidth: 1024,
@@ -551,25 +571,72 @@ class _AddScreenState extends State<AddScreen> {
             ),
           ),
           const SizedBox(height: 32),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _aiButton(
-                icon: Icons.camera_alt_rounded,
-                label: context.t('Camera'),
-                onTap: widget.onIdentifyByImage == null
-                    ? null
-                    : () => _pickImage(ImageSource.camera),
-              ),
-              const SizedBox(width: 16),
-              _aiButton(
-                icon: Icons.photo_library_rounded,
-                label: context.t('Gallery'),
-                onTap: widget.onIdentifyByImage == null
-                    ? null
-                    : () => _pickImage(ImageSource.gallery),
-              ),
-            ],
+          ValueListenableBuilder<bool>(
+            valueListenable: SubscriptionService.instance.isPro,
+            builder: (_, isPro, __) {
+              if (isPro) {
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _aiButton(
+                      icon: Icons.camera_alt_rounded,
+                      label: context.t('Camera'),
+                      onTap: widget.onIdentifyByImage == null
+                          ? null
+                          : () => _pickImage(ImageSource.camera),
+                    ),
+                    const SizedBox(width: 16),
+                    _aiButton(
+                      icon: Icons.photo_library_rounded,
+                      label: context.t('Gallery'),
+                      onTap: widget.onIdentifyByImage == null
+                          ? null
+                          : () => _pickImage(ImageSource.gallery),
+                    ),
+                  ],
+                );
+              }
+              return ValueListenableBuilder<int>(
+                valueListenable: FreeUsageService.instance.aiScanLeft,
+                builder: (_, left, __) {
+                  final exhausted = left <= 0;
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _aiButton(
+                        icon: exhausted
+                            ? Icons.lock_rounded
+                            : Icons.camera_alt_rounded,
+                        label: exhausted
+                            ? context.t('Premium')
+                            : context.t('Camera'),
+                        badge: exhausted
+                            ? null
+                            : '$left ${context.t('Free')}',
+                        onTap: widget.onIdentifyByImage == null
+                            ? null
+                            : () => _pickImage(ImageSource.camera),
+                      ),
+                      const SizedBox(width: 16),
+                      _aiButton(
+                        icon: exhausted
+                            ? Icons.lock_rounded
+                            : Icons.photo_library_rounded,
+                        label: exhausted
+                            ? context.t('Premium')
+                            : context.t('Gallery'),
+                        badge: exhausted
+                            ? null
+                            : '$left ${context.t('Free')}',
+                        onTap: widget.onIdentifyByImage == null
+                            ? null
+                            : () => _pickImage(ImageSource.gallery),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
           ),
         ],
         if (_aiIdentifying) ...[
@@ -693,6 +760,7 @@ class _AddScreenState extends State<AddScreen> {
   Widget _aiButton({
     required IconData icon,
     required String label,
+    String? badge,
     required VoidCallback? onTap,
   }) {
     return GestureDetector(
@@ -709,7 +777,37 @@ class _AddScreenState extends State<AddScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 28, color: kGold),
+            Stack(
+              alignment: Alignment.topRight,
+              children: [
+                Icon(icon, size: 28, color: kGold),
+                if (badge != null)
+                  Positioned(
+                    top: -8,
+                    right: -8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [kGoldLight, kGold],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        badge,
+                        style: arabicStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: kOud,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(height: 8),
             Text(
               label,

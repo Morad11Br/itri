@@ -692,6 +692,12 @@ abstract class AppLocalizations {
   /// **'سياسة الخصوصية'**
   String get privacyPolicy;
 
+  /// No description provided for @termsOfUse.
+  ///
+  /// In ar, this message translates to:
+  /// **'شروط الاستخدام'**
+  String get termsOfUse;
+
   /// No description provided for @dataCollection.
   ///
   /// In ar, this message translates to:

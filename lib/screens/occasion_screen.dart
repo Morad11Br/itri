@@ -1,13 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../l10n/hardcoded_localizations.dart';
 import '../services/subscription_service.dart';
 import '../models/ai_recommendation.dart';
 import '../models/perfume.dart';
 import '../theme.dart';
-import '../widgets/bottle_icon.dart';
-import '../widgets/perfume_image.dart';
+import '../widgets/occasion_result_card.dart';
+import '../widgets/perfume_intelligence_header.dart';
+import '../widgets/paywall_sheet.dart';
 
 typedef OccasionFinder =
     Future<List<Perfume>> Function({
@@ -16,6 +18,8 @@ typedef OccasionFinder =
       required List<String> seasonAccords,
       String? gender,
       int limit,
+      String? priceTier,
+      List<String>? tierBrands,
     });
 
 typedef AiFinder =
@@ -53,11 +57,13 @@ class _OccasionScreenState extends State<OccasionScreen> {
   String _intensity = 'Medium';
   String _recipient = 'Men';
   String _style = 'Classic';
+  String _priceTier = 'All';
   bool _showResults = false;
   bool _loadingResults = false;
   String? _resultError;
   List<Perfume> _results = const [];
   Map<String, String> _aiReasons = {};
+  bool _isOnline = true;
 
   final _occasions = [
     'Eid',
@@ -97,6 +103,48 @@ class _OccasionScreenState extends State<OccasionScreen> {
     'Strong': ['oud', 'amber', 'leather', 'smoky'],
   };
 
+  static const _priceTiers = ['All', 'Budget', 'Mid', 'Premium', 'Niche'];
+
+  static const _tierBrands = {
+    'Budget': [
+      'lattafa', 'rasasi', 'armaf', 'al rehab', 'swiss arabian',
+      'club de nuit', 'sterling parfums', 'afnan', 'ard al zaafaran',
+      'al haramain', 'ajmal', 'nabeel', 'sapil', 'riiffs',
+      'maison alhambra', 'milestone', 'emper', 'vurv', 'asdaaf',
+      'fragrance world', 'flavia', 'paris corner', 'orientica',
+      'byron', 'just jack', 'aldehyde', 'alt', 'dossier',
+      'oakcha', 'oil perfumery', 'dual scent', 'french factor',
+      'la rive', 'jovan', 'coty', 'avon', 'mary kay',
+      'reminiscence', 's.oliver', 'benetton', 'arabian oud',
+    ],
+    'Mid': [
+      'versace', 'hugo boss', 'montblanc', 'calvin klein',
+      'davidoff', 'lacoste', 'prada', 'coach', 'guess',
+      'nautica', 'kenneth cole', 'perry ellis', 'azzaro',
+      'issey miyake', 'narciso rodriguez', 'carolina herrera',
+      'paco rabanne', 'jean paul gaultier', 'dolce gabbana',
+      'ralph lauren', 'salvatore ferragamo', 'bvlgari', 'burberry',
+      'dunhill', 'bentley', 'jaguar', 'mercedes benz', 'mancera',
+      'banana republic', 'gucci', 'lancome', 'elizabeth arden',
+      'kenzo', 'loewe', 'marc jacobs', 'diesel', 'dkny',
+      'escada', 'joop', 'cacharel', 'chopard', 'ferrari',
+    ],
+    'Premium': [
+      'dior', 'chanel', 'ysl', 'givenchy', 'prada',
+      'armani', 'guerlain', 'hermes', 'lanvin', 'cartier',
+      'valentino', 'bvlgari', 'coach', 'jimmy choo', 'tiffany',
+      'marc jacobs', 'elie saab', 'narciso rodriguez', 'victor', 'roja',
+    ],
+    'Niche': [
+      'tom ford', 'creed', 'amouage', 'maison francis kurkdjian',
+      'mfk', 'initio', 'xerjoff', 'parfums de marly',
+      'byredo', 'diptyque', 'le labo', 'frederic malle', 'serge lutens',
+      'kilian', 'clive christian', 'roja dove', 'bond no. 9', 'nasomatto',
+      'ormonde jayne', 'neela vermeire', 'boadicea', 'fort & manle',
+      'tauer', 'dusita', 'strangers', 'hiba', 'ensar oud',
+    ],
+  };
+
   @override
   Widget build(BuildContext context) {
     return Directionality(
@@ -125,7 +173,10 @@ class _OccasionScreenState extends State<OccasionScreen> {
                 _buildIntensityCard(),
                 const SizedBox(height: 12),
                 _buildRecipientStyleRow(),
+                const SizedBox(height: 12),
+                _buildPriceTierCard(),
                 const SizedBox(height: 16),
+                if (!_isOnline) _buildOfflineBanner(),
                 _buildCTA(),
                 if (_showResults) ...[
                   const SizedBox(height: 16),
@@ -151,8 +202,40 @@ class _OccasionScreenState extends State<OccasionScreen> {
                         color: Colors.red.shade700,
                       ),
                     )
-                  else
-                    ..._results.map(_buildResultCard),
+                  else ...[
+                    PerfumeIntelligenceHeader(
+                      occasion: _occasion,
+                      season: _season,
+                      style: _style,
+                      intensity: _intensity,
+                    ),
+                    if (_results.isEmpty)
+                      _buildEmptyState()
+                    else
+                      ..._results.map((perfume) {
+                        final occasionAccords =
+                            _occasionAccords[_occasion] ?? const <String>[];
+                        final styleAccords =
+                            _styleAccords[_style] ?? const <String>[];
+                        final seasonAccords =
+                            _seasonAccords[_season] ?? const <String>[];
+                        return OccasionResultCard(
+                          key: ValueKey(perfume.id),
+                          perfume: perfume,
+                          aiReason: _aiReasons[perfume.id],
+                          matchScore: _matchPercentage(
+                            perfume,
+                            occasionAccords,
+                            styleAccords,
+                            seasonAccords,
+                          ),
+                          metadataChips: _perfumeMetadata(context, perfume),
+                          onTap: widget.onPerfumeTap == null
+                              ? null
+                              : () => widget.onPerfumeTap!(perfume),
+                        );
+                      }),
+                  ],
                 ],
                 const SizedBox(height: 80),
               ],
@@ -426,35 +509,168 @@ class _OccasionScreenState extends State<OccasionScreen> {
     );
   }
 
-  Widget _buildCTA() {
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: _loadingResults ? null : _findPerfumes,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: kGold,
-          foregroundColor: kOud,
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+  Widget _buildPriceTierCard() {
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            context.t('Price tier'),
+            style: arabicStyle(fontSize: 14, fontWeight: FontWeight.w700),
           ),
-          elevation: 6,
-        ),
-        child: Text(
-          widget.onFindByAi != null
-              ? context.t('Find your perfume with AI ✨')
-              : context.t('Find the perfect perfume 🌟'),
-          style: arabicStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: kOud,
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: _priceTiers.map((t) {
+              final active = t == _priceTier;
+              return GestureDetector(
+                onTap: () => setState(() => _priceTier = t),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: active ? kOud : kCream,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: active ? kOud : const Color(0xFFE5DDD4),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Text(
+                    context.t(t),
+                    style: arabicStyle(
+                      fontSize: 13,
+                      color: active ? Colors.white : kWarmGray,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
           ),
-        ),
+        ],
       ),
     );
   }
 
+  Widget _buildOfflineBanner() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.wifi_off_rounded, color: Colors.red.shade700, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              context.t('No internet connection. Connect to search the full database.'),
+              style: arabicStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.red.shade700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCTA() {
+    final hasAi = widget.onFindByAi != null;
+    final isPro = SubscriptionService.instance.isPro.value;
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _loadingResults ? null : _findPerfumes,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: kGold,
+              foregroundColor: kOud,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              elevation: 6,
+            ),
+            child: Text(
+              hasAi && isPro
+                  ? context.t('Find your perfume with AI ✨')
+                  : context.t('Find the perfect perfume 🌟'),
+              style: arabicStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: kOud,
+              ),
+            ),
+          ),
+        ),
+        if (hasAi && !isPro) ...[
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () => PaywallBottomSheet.show(
+              context,
+              message: context.t('AI recommendations require Premium'),
+            ),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [kGoldLight, kGold],
+                ),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock_rounded, size: 12, color: kOud),
+                  const SizedBox(width: 4),
+                  Text(
+                    '${context.t('AI')} ${context.t('Premium')}',
+                    style: arabicStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: kOud,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  Future<bool> _checkConnectivity() async {
+    final results = await Connectivity().checkConnectivity();
+    final online = results.isNotEmpty &&
+        results.any((r) => r != ConnectivityResult.none);
+    if (_isOnline != online) setState(() => _isOnline = online);
+    return online;
+  }
+
   Future<void> _findPerfumes() async {
+    final isOnline = await _checkConnectivity();
+    if (!isOnline) {
+      setState(() {
+        _showResults = true;
+        _loadingResults = false;
+        _resultError = context.t('No internet connection. Please check your network and try again.');
+      });
+      return;
+    }
+
     final occasionAccords = _occasionAccords[_occasion] ?? const <String>[];
     final styleAccords = _styleAccords[_style] ?? const <String>[];
     final gender = _selectedGender();
@@ -473,32 +689,32 @@ class _OccasionScreenState extends State<OccasionScreen> {
       );
     });
 
-    // AI path — preferred when available, Pro-gated
+    // AI path — Premium only
     if (widget.onFindByAi != null) {
-      if (!SubscriptionService.instance.isPro.value) {
-        if (mounted) setState(() => _loadingResults = false);
-        widget.onRequireUpgrade?.call();
-        return;
+      final isPro = SubscriptionService.instance.isPro.value;
+      if (isPro) {
+        try {
+          final recs = await widget.onFindByAi!(
+            occasion: _occasion,
+            style: _style,
+            gender: gender ?? 'unisex',
+            season: _season,
+            intensity: _intensity,
+          );
+          if (!mounted) return;
+          final filtered = recs.where((r) => _matchesPriceTier(r.perfume)).toList();
+          setState(() {
+            _results = filtered.map((r) => r.perfume).toList();
+            _aiReasons = {for (final r in filtered) r.perfume.id: r.reason};
+          });
+          return;
+        } catch (_) {
+          // fall through to rule-based
+        } finally {
+          if (mounted) setState(() => _loadingResults = false);
+        }
       }
-      try {
-        final recs = await widget.onFindByAi!(
-          occasion: _occasion,
-          style: _style,
-          gender: gender ?? 'unisex',
-          season: _season,
-          intensity: _intensity,
-        );
-        if (!mounted) return;
-        setState(() {
-          _results = recs.map((r) => r.perfume).toList();
-          _aiReasons = {for (final r in recs) r.perfume.id: r.reason};
-        });
-        return;
-      } catch (_) {
-        // fall through to rule-based
-      } finally {
-        if (mounted) setState(() => _loadingResults = false);
-      }
+      // Free users silently fall through to rule-based — no blocking paywall
     }
 
     // Rule-based fallback
@@ -516,11 +732,13 @@ class _OccasionScreenState extends State<OccasionScreen> {
         seasonAccords: seasonAccords,
         gender: gender,
         limit: 10,
+        priceTier: _priceTier,
+        tierBrands: _tierBrands[_priceTier],
       );
       if (!mounted) return;
       setState(() {
         _results = results.isNotEmpty
-            ? results
+            ? results.where(_matchesPriceTier).toList()
             : _findLocalResults(
                 occasionAccords: occasionAccords,
                 styleAccords: styleAccords,
@@ -555,6 +773,14 @@ class _OccasionScreenState extends State<OccasionScreen> {
     };
   }
 
+  bool _matchesPriceTier(Perfume perfume) {
+    if (_priceTier == 'All') return true;
+    final brands = _tierBrands[_priceTier];
+    if (brands == null || brands.isEmpty) return true;
+    final brandLower = perfume.brand.toLowerCase();
+    return brands.any((b) => brandLower.contains(b));
+  }
+
   List<Perfume> _findLocalResults({
     required List<String> occasionAccords,
     required List<String> styleAccords,
@@ -568,7 +794,7 @@ class _OccasionScreenState extends State<OccasionScreen> {
         'unisex' => perfume.gender == 'Unisex',
         _ => true,
       };
-      return genderMatch;
+      return genderMatch && _matchesPriceTier(perfume);
     }).toList();
 
     results.sort((a, b) {
@@ -604,131 +830,111 @@ class _OccasionScreenState extends State<OccasionScreen> {
     return (occasionMatches * 2) + (styleMatches * 4) + (seasonMatches * 3);
   }
 
-  Widget _buildResultCard(Perfume perfume) {
-    final accent = perfume.accent;
-    return GestureDetector(
-      onTap: widget.onPerfumeTap == null
-          ? null
-          : () => widget.onPerfumeTap!(perfume),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: kCardShadow,
-          border: Border(right: BorderSide(color: accent, width: 3)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                gradient: const LinearGradient(
-                  colors: [kGoldPale, Colors.white],
-                ),
-              ),
-              child: _buildPerfumeImage(perfume, 28),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    perfume.brand,
-                    style: serifStyle(fontSize: 11, italic: true),
-                  ),
-                  Text(
-                    perfume.name,
-                    style: arabicStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  Text(
-                    _aiReasons[perfume.id] ?? _recommendationText(perfume),
-                    style: arabicStyle(
-                      fontSize: 11,
-                      color: _aiReasons.containsKey(perfume.id)
-                          ? kGold
-                          : kWarmGray,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  '${perfume.rating.toStringAsFixed(1)} ★',
-                  style: arabicStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: kGold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [kGoldLight, kGold]),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    context.t('View'),
-                    style: arabicStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: kOud,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
+  int _matchPercentage(
+    Perfume perfume,
+    List<String> occasionAccords,
+    List<String> styleAccords,
+    List<String> seasonAccords,
+  ) {
+    final raw = _matchScore(perfume, occasionAccords, styleAccords, seasonAccords);
+    final maxScore = (occasionAccords.length * 2) +
+        (styleAccords.length * 4) +
+        (seasonAccords.length * 3);
+    if (maxScore == 0) return 75;
+    return ((raw / maxScore) * 100).round().clamp(62, 98);
   }
 
-  Widget _buildPerfumeImage(Perfume p, double fallbackSize) {
-    final imageUrl = p.imageUrl ?? p.fallbackImageUrl;
-    if (imageUrl == null) {
-      return Center(
-        child: BottleIcon(color: p.accent, size: fallbackSize),
-      );
+  List<String> _perfumeMetadata(BuildContext context, Perfume p) {
+    final chips = <String>[];
+    final accords = p.accords.map((a) => a.toLowerCase()).toSet();
+
+    final heavy = {'oud', 'amber', 'leather', 'smoky', 'warm spicy', 'patchouli'};
+    final fresh = {'citrus', 'fresh', 'aquatic', 'green', 'aromatic'};
+    final hasHeavy = accords.intersection(heavy).isNotEmpty;
+    final hasFresh = accords.intersection(fresh).isNotEmpty;
+
+    // Performance
+    if (_intensity == 'Strong' || hasHeavy) {
+      chips.add(context.t('🔥 Strong projection'));
+    } else if (_intensity == 'Medium') {
+      chips.add(context.t('✨ Moderate projection'));
+    } else if (_intensity == 'Light' || hasFresh) {
+      chips.add(context.t('🍃 Light projection'));
     }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: PerfumeImage(
-        primaryUrl: imageUrl,
-        fallbackUrl: p.fallbackImageUrl,
-        fallbackColor: p.accent,
-        fit: BoxFit.cover,
-        iconSize: fallbackSize,
-      ),
-    );
+
+    // Longevity
+    if (hasHeavy) {
+      chips.add(context.t('🕒 Long lasting'));
+    } else {
+      chips.add(context.t('⏱️ Moderate longevity'));
+    }
+
+    // Notes family
+    if (accords.any((a) =>
+        a.contains('oud') || a.contains('woody') || a.contains('cedar') || a.contains('sandalwood'))) {
+      chips.add(context.t('🌲 Woody notes'));
+    } else if (accords.any((a) =>
+        a.contains('floral') || a.contains('rose') || a.contains('jasmine'))) {
+      chips.add(context.t('🌸 Floral notes'));
+    } else if (accords.any((a) =>
+        a.contains('citrus') || a.contains('fresh') || a.contains('aquatic'))) {
+      chips.add(context.t('🍊 Fresh notes'));
+    } else if (accords.any((a) => a.contains('spicy'))) {
+      chips.add(context.t('🌶️ Spicy notes'));
+    }
+
+    // Occasion fit
+    final evening = {'Date', 'Wedding', 'Eid'};
+    final day = {'Daily', 'Job interview', 'Umrah'};
+    if (evening.contains(_occasion)) {
+      chips.add(context.t('🌙 Evening wear'));
+    } else if (day.contains(_occasion)) {
+      chips.add(context.t('☀️ Day wear'));
+    }
+
+    return chips.take(3).toList();
   }
 
-  String _recommendationText(Perfume perfume) {
-    final notes = [
-      ...perfume.topNotes,
-      ...perfume.heartNotes,
-      ...perfume.baseNotes,
-    ].take(3).map((note) => context.t(note.name)).join('، ');
-    if (notes.isEmpty) {
-      return context.t('Picked from FragDB data by rating and popularity');
-    }
-    return ht(context, 'Featured notes: {notes}', {'notes': notes});
+  Widget _buildEmptyState() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 20),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: kCardShadow,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.search_off_rounded,
+            size: 48,
+            color: kSand.withValues(alpha: 0.5),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            context.t('No perfumes found matching your criteria'),
+            textAlign: TextAlign.center,
+            style: arabicStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: kWarmGray,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            context.t('Try adjusting the occasion, season, or price filters'),
+            textAlign: TextAlign.center,
+            style: arabicStyle(
+              fontSize: 13,
+              color: kSand,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _card({required Widget child}) {
